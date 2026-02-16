@@ -27,14 +27,14 @@ apcore provides a unified task orchestration framework with schema validation, a
 ## Installation
 
 ```bash
-npm install apcore
+npm install apcore-js
 ```
 
 ## Quick Start
 
 ```typescript
 import { Type } from '@sinclair/typebox';
-import { FunctionModule, Registry, Executor } from 'apcore';
+import { FunctionModule, Registry, Executor } from 'apcore-js';
 
 // Define a module
 const greet = new FunctionModule({

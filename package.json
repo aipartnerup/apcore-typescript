@@ -1,5 +1,5 @@
 {
-  "name": "apcore",
+  "name": "apcore-js",
   "version": "0.1.0",
   "description": "AI-Perceivable Core — schema-driven module development framework",
   "type": "module",
