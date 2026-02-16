@@ -1,0 +1,185 @@
+import { describe, it, expect } from 'vitest';
+import { Middleware } from '../src/middleware/base.js';
+import { MiddlewareManager, MiddlewareChainError } from '../src/middleware/manager.js';
+import { Context, createIdentity } from '../src/context.js';
+
+function makeContext(): Context {
+  return Context.create(null, createIdentity('test-user'));
+}
+
+class TaggingMiddleware extends Middleware {
+  readonly tag: string;
+
+  constructor(tag: string) {
+    super();
+    this.tag = tag;
+  }
+
+  override before(
+    _moduleId: string,
+    inputs: Record<string, unknown>,
+  ): Record<string, unknown> | null {
+    const trail = ((inputs['trail'] as string) ?? '') + this.tag;
+    return { ...inputs, trail };
+  }
+
+  override after(
+    _moduleId: string,
+    _inputs: Record<string, unknown>,
+    output: Record<string, unknown>,
+  ): Record<string, unknown> | null {
+    const trail = ((output['trail'] as string) ?? '') + this.tag;
+    return { ...output, trail };
+  }
+}
+
+class RecoveringMiddleware extends Middleware {
+  readonly recovery: Record<string, unknown>;
+
+  constructor(recovery: Record<string, unknown>) {
+    super();
+    this.recovery = recovery;
+  }
+
+  override onError(): Record<string, unknown> | null {
+    return this.recovery;
+  }
+}
+
+describe('MiddlewareManager', () => {
+  it('starts empty', () => {
+    const mgr = new MiddlewareManager();
+    expect(mgr.snapshot()).toEqual([]);
+  });
+
+  it('add and snapshot', () => {
+    const mgr = new MiddlewareManager();
+    const mw1 = new Middleware();
+    const mw2 = new Middleware();
+    mgr.add(mw1);
+    mgr.add(mw2);
+    expect(mgr.snapshot()).toHaveLength(2);
+  });
+
+  it('snapshot returns a copy', () => {
+    const mgr = new MiddlewareManager();
+    mgr.add(new Middleware());
+    const snap = mgr.snapshot();
+    snap.pop();
+    expect(mgr.snapshot()).toHaveLength(1);
+  });
+
+  it('remove by identity', () => {
+    const mgr = new MiddlewareManager();
+    const mw1 = new Middleware();
+    const mw2 = new Middleware();
+    mgr.add(mw1);
+    mgr.add(mw2);
+    expect(mgr.remove(mw1)).toBe(true);
+    expect(mgr.snapshot()).toEqual([mw2]);
+  });
+
+  it('remove returns false when not found', () => {
+    const mgr = new MiddlewareManager();
+    expect(mgr.remove(new Middleware())).toBe(false);
+  });
+
+  it('executeBefore runs in forward order', () => {
+    const mgr = new MiddlewareManager();
+    mgr.add(new TaggingMiddleware('A'));
+    mgr.add(new TaggingMiddleware('B'));
+    mgr.add(new TaggingMiddleware('C'));
+    const ctx = makeContext();
+    const [result, executed] = mgr.executeBefore('mod.test', { trail: '' }, ctx);
+    expect(result['trail']).toBe('ABC');
+    expect(executed).toHaveLength(3);
+  });
+
+  it('executeBefore passes original inputs when all return null', () => {
+    const mgr = new MiddlewareManager();
+    mgr.add(new Middleware());
+    mgr.add(new Middleware());
+    const ctx = makeContext();
+    const [result] = mgr.executeBefore('mod.test', { x: 42 }, ctx);
+    expect(result).toEqual({ x: 42 });
+  });
+
+  it('executeAfter runs in reverse order', () => {
+    const mgr = new MiddlewareManager();
+    mgr.add(new TaggingMiddleware('A'));
+    mgr.add(new TaggingMiddleware('B'));
+    mgr.add(new TaggingMiddleware('C'));
+    const ctx = makeContext();
+    const result = mgr.executeAfter('mod.test', {}, { trail: '' }, ctx);
+    expect(result['trail']).toBe('CBA');
+  });
+
+  it('executeAfter passes original output when all return null', () => {
+    const mgr = new MiddlewareManager();
+    mgr.add(new Middleware());
+    const ctx = makeContext();
+    const result = mgr.executeAfter('mod.test', {}, { y: 99 }, ctx);
+    expect(result).toEqual({ y: 99 });
+  });
+
+  it('executeOnError returns first non-null recovery (reverse order)', () => {
+    const mgr = new MiddlewareManager();
+    const mwA = new RecoveringMiddleware({ recovered: 'A' });
+    const mwB = new RecoveringMiddleware({ recovered: 'B' });
+    mgr.add(mwA);
+    mgr.add(mwB);
+    const ctx = makeContext();
+    const result = mgr.executeOnError('mod.test', {}, new Error('oops'), ctx, [mwA, mwB]);
+    expect(result).toEqual({ recovered: 'B' });
+  });
+
+  it('executeOnError returns null when no recovery', () => {
+    const mgr = new MiddlewareManager();
+    const mw = new Middleware();
+    mgr.add(mw);
+    const ctx = makeContext();
+    const result = mgr.executeOnError('mod.test', {}, new Error('oops'), ctx, [mw]);
+    expect(result).toBeNull();
+  });
+
+  it('executeOnError swallows errors in onError handlers', () => {
+    class ThrowingOnError extends Middleware {
+      override onError(): Record<string, unknown> | null {
+        throw new Error('onError also failed');
+      }
+    }
+    const mgr = new MiddlewareManager();
+    const mwRecover = new RecoveringMiddleware({ safe: true });
+    const mwThrow = new ThrowingOnError();
+    mgr.add(mwRecover);
+    mgr.add(mwThrow);
+    const ctx = makeContext();
+    const result = mgr.executeOnError('mod.test', {}, new Error('original'), ctx, [mwRecover, mwThrow]);
+    expect(result).toEqual({ safe: true });
+  });
+
+  it('MiddlewareChainError wraps before() failure', () => {
+    class FailingBefore extends Middleware {
+      override before(): Record<string, unknown> | null {
+        throw new Error('before exploded');
+      }
+    }
+    const mgr = new MiddlewareManager();
+    const ok = new TaggingMiddleware('A');
+    const fail = new FailingBefore();
+    mgr.add(ok);
+    mgr.add(fail);
+    const ctx = makeContext();
+
+    let caught: MiddlewareChainError | undefined;
+    try {
+      mgr.executeBefore('mod.test', { trail: '' }, ctx);
+    } catch (e) {
+      caught = e as MiddlewareChainError;
+    }
+
+    expect(caught).toBeInstanceOf(MiddlewareChainError);
+    expect(caught!.original.message).toBe('before exploded');
+    expect(caught!.executedMiddlewares).toHaveLength(2);
+  });
+});
