@@ -191,80 +191,69 @@ export class SchemaLoader {
 export function jsonSchemaToTypeBox(schema: Record<string, unknown>): TSchema {
   const schemaType = schema['type'] as string | undefined;
 
-  if (schemaType === 'object') {
-    const properties = schema['properties'] as Record<string, Record<string, unknown>> | undefined;
-    const required = new Set((schema['required'] as string[]) ?? []);
-
-    if (properties) {
-      const typeboxProps: Record<string, TSchema> = {};
-      for (const [name, propSchema] of Object.entries(properties)) {
-        const propType = jsonSchemaToTypeBox(propSchema);
-        typeboxProps[name] = required.has(name) ? propType : Type.Optional(propType);
-      }
-      return Type.Object(typeboxProps);
-    }
-    return Type.Record(Type.String(), Type.Unknown());
-  }
-
-  if (schemaType === 'array') {
-    const items = schema['items'] as Record<string, unknown> | undefined;
-    if (items) {
-      return Type.Array(jsonSchemaToTypeBox(items));
-    }
-    return Type.Array(Type.Unknown());
-  }
-
-  if (schemaType === 'string') {
-    const opts: Record<string, unknown> = {};
-    if ('minLength' in schema) opts['minLength'] = schema['minLength'];
-    if ('maxLength' in schema) opts['maxLength'] = schema['maxLength'];
-    if ('pattern' in schema) opts['pattern'] = schema['pattern'];
-    if ('format' in schema) opts['format'] = schema['format'];
-    return Type.String(opts);
-  }
-
-  if (schemaType === 'integer') {
-    const opts: Record<string, unknown> = {};
-    if ('minimum' in schema) opts['minimum'] = schema['minimum'];
-    if ('maximum' in schema) opts['maximum'] = schema['maximum'];
-    if ('exclusiveMinimum' in schema) opts['exclusiveMinimum'] = schema['exclusiveMinimum'];
-    if ('exclusiveMaximum' in schema) opts['exclusiveMaximum'] = schema['exclusiveMaximum'];
-    if ('multipleOf' in schema) opts['multipleOf'] = schema['multipleOf'];
-    return Type.Integer(opts);
-  }
-
-  if (schemaType === 'number') {
-    const opts: Record<string, unknown> = {};
-    if ('minimum' in schema) opts['minimum'] = schema['minimum'];
-    if ('maximum' in schema) opts['maximum'] = schema['maximum'];
-    if ('exclusiveMinimum' in schema) opts['exclusiveMinimum'] = schema['exclusiveMinimum'];
-    if ('exclusiveMaximum' in schema) opts['exclusiveMaximum'] = schema['exclusiveMaximum'];
-    if ('multipleOf' in schema) opts['multipleOf'] = schema['multipleOf'];
-    return Type.Number(opts);
-  }
-
+  if (schemaType === 'object') return convertObjectSchema(schema);
+  if (schemaType === 'array') return convertArraySchema(schema);
+  if (schemaType === 'string') return convertStringSchema(schema);
+  if (schemaType === 'integer') return convertNumericSchema(schema, Type.Integer);
+  if (schemaType === 'number') return convertNumericSchema(schema, Type.Number);
   if (schemaType === 'boolean') return Type.Boolean();
   if (schemaType === 'null') return Type.Null();
 
+  return convertCombinatorSchema(schema);
+}
+
+function convertObjectSchema(schema: Record<string, unknown>): TSchema {
+  const properties = schema['properties'] as Record<string, Record<string, unknown>> | undefined;
+  const required = new Set((schema['required'] as string[]) ?? []);
+
+  if (properties) {
+    const typeboxProps: Record<string, TSchema> = {};
+    for (const [name, propSchema] of Object.entries(properties)) {
+      const propType = jsonSchemaToTypeBox(propSchema);
+      typeboxProps[name] = required.has(name) ? propType : Type.Optional(propType);
+    }
+    return Type.Object(typeboxProps);
+  }
+  return Type.Record(Type.String(), Type.Unknown());
+}
+
+function convertArraySchema(schema: Record<string, unknown>): TSchema {
+  const items = schema['items'] as Record<string, unknown> | undefined;
+  return items ? Type.Array(jsonSchemaToTypeBox(items)) : Type.Array(Type.Unknown());
+}
+
+function convertStringSchema(schema: Record<string, unknown>): TSchema {
+  const opts: Record<string, unknown> = {};
+  for (const key of ['minLength', 'maxLength', 'pattern', 'format']) {
+    if (key in schema) opts[key] = schema[key];
+  }
+  return Type.String(opts);
+}
+
+function convertNumericSchema(
+  schema: Record<string, unknown>,
+  factory: (opts?: Record<string, unknown>) => TSchema,
+): TSchema {
+  const opts: Record<string, unknown> = {};
+  for (const key of ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf']) {
+    if (key in schema) opts[key] = schema[key];
+  }
+  return factory(opts);
+}
+
+function convertCombinatorSchema(schema: Record<string, unknown>): TSchema {
   if ('enum' in schema) {
     const values = schema['enum'] as unknown[];
     return Type.Union(values.map((v) => Type.Literal(v as string | number | boolean)));
   }
-
   if ('oneOf' in schema) {
-    const schemas = schema['oneOf'] as Record<string, unknown>[];
-    return Type.Union(schemas.map((s) => jsonSchemaToTypeBox(s)));
+    return Type.Union((schema['oneOf'] as Record<string, unknown>[]).map(jsonSchemaToTypeBox));
   }
-
   if ('anyOf' in schema) {
-    const schemas = schema['anyOf'] as Record<string, unknown>[];
-    return Type.Union(schemas.map((s) => jsonSchemaToTypeBox(s)));
+    return Type.Union((schema['anyOf'] as Record<string, unknown>[]).map(jsonSchemaToTypeBox));
   }
-
   if ('allOf' in schema) {
-    const schemas = schema['allOf'] as Record<string, unknown>[];
-    return Type.Intersect(schemas.map((s) => jsonSchemaToTypeBox(s)));
+    return Type.Intersect((schema['allOf'] as Record<string, unknown>[]).map(jsonSchemaToTypeBox));
   }
-
   return Type.Unknown();
 }

@@ -12,7 +12,7 @@ export interface Logger {
 
 const defaultLogger: Logger = {
   info(message: string, extra?: Record<string, unknown>) {
-    console.log(message, extra ?? '');
+    console.info(message, extra ?? '');
   },
   error(message: string, extra?: Record<string, unknown>) {
     console.error(message, extra ?? '');

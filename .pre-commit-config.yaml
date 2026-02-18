@@ -5,13 +5,13 @@ repos:
     hooks:
       - id: check-chars
         name: apdev-js check-chars
-        entry: apdev-js check-chars
+        entry: npx apdev-js check-chars
         language: system
         types_or: [text, ts, javascript]
 
       - id: check-imports
         name: apdev-js check-imports
-        entry: apdev-js check-imports
+        entry: npx apdev-js check-imports --package apcore-js
         language: system
         pass_filenames: false
         always_run: true

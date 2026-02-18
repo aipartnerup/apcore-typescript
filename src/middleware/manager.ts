@@ -95,8 +95,8 @@ export class MiddlewareManager {
         if (result !== null) {
           return result;
         }
-      } catch {
-        // Swallow errors in onError handlers
+      } catch (e) {
+        console.warn('[apcore:middleware] Error in onError handler, continuing:', e);
         continue;
       }
     }

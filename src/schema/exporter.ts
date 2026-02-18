@@ -3,12 +3,9 @@
  */
 
 import type { ModuleAnnotations, ModuleExample } from '../module.js';
+import { deepCopy } from '../utils/index.js';
 import { applyLlmDescriptions, stripExtensions, toStrictSchema } from './strict.js';
 import { ExportProfile, type SchemaDefinition } from './types.js';
-
-function deepCopy<T>(obj: T): T {
-  return JSON.parse(JSON.stringify(obj));
-}
 
 export class SchemaExporter {
   export(

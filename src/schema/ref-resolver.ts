@@ -6,12 +6,9 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import yaml from 'js-yaml';
 import { SchemaCircularRefError, SchemaNotFoundError, SchemaParseError } from '../errors.js';
+import { deepCopy } from '../utils/index.js';
 
 const INLINE_SENTINEL = '__inline__';
-
-function deepCopy<T>(obj: T): T {
-  return JSON.parse(JSON.stringify(obj));
-}
 
 export class RefResolver {
   private _schemasDir: string;

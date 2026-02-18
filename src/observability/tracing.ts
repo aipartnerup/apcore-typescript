@@ -45,7 +45,7 @@ export interface SpanExporter {
 
 export class StdoutExporter implements SpanExporter {
   export(span: Span): void {
-    console.log(JSON.stringify(span));
+    process.stdout.write(JSON.stringify(span) + '\n');
   }
 }
 

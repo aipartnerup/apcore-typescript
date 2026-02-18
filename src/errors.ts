@@ -242,7 +242,7 @@ export class FuncMissingTypeHintError extends ModuleError {
   constructor(functionName: string, parameterName: string, options?: { cause?: Error; traceId?: string }) {
     super(
       'FUNC_MISSING_TYPE_HINT',
-      `Parameter '${parameterName}' in function '${functionName}' has no type annotation. Add a type hint like '${parameterName}: str'.`,
+      `Parameter '${parameterName}' in function '${functionName}' has no type annotation. Add a type annotation like '${parameterName}: string'.`,
       { functionName, parameterName },
       options?.cause,
       options?.traceId,
@@ -255,7 +255,7 @@ export class FuncMissingReturnTypeError extends ModuleError {
   constructor(functionName: string, options?: { cause?: Error; traceId?: string }) {
     super(
       'FUNC_MISSING_RETURN_TYPE',
-      `Function '${functionName}' has no return type annotation. Add a return type like '-> dict'.`,
+      `Function '${functionName}' has no return type annotation. Add a return type like ': Record<string, unknown>'.`,
       { functionName },
       options?.cause,
       options?.traceId,

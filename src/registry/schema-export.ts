@@ -6,14 +6,11 @@ import type { TSchema } from '@sinclair/typebox';
 import json from 'js-yaml';
 import type { ModuleAnnotations, ModuleExample } from '../module.js';
 import { ModuleNotFoundError } from '../errors.js';
+import { deepCopy } from '../utils/index.js';
 import { SchemaExporter } from '../schema/exporter.js';
 import { stripExtensions, toStrictSchema } from '../schema/strict.js';
 import { ExportProfile, type SchemaDefinition } from '../schema/types.js';
 import type { Registry } from './registry.js';
-
-function deepCopy<T>(obj: T): T {
-  return JSON.parse(JSON.stringify(obj));
-}
 
 export function getSchema(registry: Registry, moduleId: string): Record<string, unknown> | null {
   const module = registry.get(moduleId);

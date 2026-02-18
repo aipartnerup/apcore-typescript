@@ -2,9 +2,7 @@
  * Strict mode conversion for JSON Schemas (Algorithm A23).
  */
 
-function deepCopy<T>(obj: T): T {
-  return JSON.parse(JSON.stringify(obj));
-}
+import { deepCopy } from '../utils/index.js';
 
 export function toStrictSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const result = deepCopy(schema);

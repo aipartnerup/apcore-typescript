@@ -63,6 +63,18 @@ export class Registry {
   }
 
   async discover(): Promise<number> {
+    const discovered = this._scanRoots();
+    this._applyIdMapOverrides(discovered);
+
+    const rawMetadata = this._loadAllMetadata(discovered);
+    const resolvedModules = await this._resolveAllEntryPoints(discovered, rawMetadata);
+    const validModules = this._validateAll(resolvedModules);
+    const loadOrder = this._resolveLoadOrder(validModules, rawMetadata);
+
+    return this._registerInOrder(loadOrder, validModules, rawMetadata);
+  }
+
+  private _scanRoots(): import('./types.js').DiscoveredModule[] {
     let maxDepth = 8;
     let followSymlinks = false;
     if (this._config !== null) {
@@ -70,96 +82,105 @@ export class Registry {
       followSymlinks = (this._config.get('extensions.follow_symlinks', false) as boolean);
     }
 
-    // Step 1: Scan extension roots
     const hasNamespace = this._extensionRoots.some((r) => 'namespace' in r);
-    let discovered;
     if (this._extensionRoots.length > 1 || hasNamespace) {
-      discovered = scanMultiRoot(this._extensionRoots, maxDepth, followSymlinks);
-    } else {
-      const rootPath = this._extensionRoots[0]['root'] as string;
-      discovered = scanExtensions(rootPath, maxDepth, followSymlinks);
+      return scanMultiRoot(this._extensionRoots, maxDepth, followSymlinks);
     }
+    return scanExtensions(this._extensionRoots[0]['root'] as string, maxDepth, followSymlinks);
+  }
 
-    // Step 2: Apply ID Map overrides
-    if (Object.keys(this._idMap).length > 0) {
-      const resolvedRoots = this._extensionRoots.map((r) => resolve(r['root'] as string));
-      for (const dm of discovered) {
-        for (const root of resolvedRoots) {
-          try {
-            const relPath = dm.filePath.startsWith(root)
-              ? dm.filePath.slice(root.length + 1)
-              : null;
-            if (relPath && relPath in this._idMap) {
-              dm.canonicalId = this._idMap[relPath]['id'] as string;
-              break;
-            }
-          } catch {
-            continue;
+  private _applyIdMapOverrides(discovered: import('./types.js').DiscoveredModule[]): void {
+    if (Object.keys(this._idMap).length === 0) return;
+
+    const resolvedRoots = this._extensionRoots.map((r) => resolve(r['root'] as string));
+    for (const dm of discovered) {
+      for (const root of resolvedRoots) {
+        try {
+          const relPath = dm.filePath.startsWith(root)
+            ? dm.filePath.slice(root.length + 1)
+            : null;
+          if (relPath && relPath in this._idMap) {
+            dm.canonicalId = this._idMap[relPath]['id'] as string;
+            break;
           }
+        } catch (e) {
+          console.warn(`[apcore:registry] Failed to apply ID map for ${dm.canonicalId}:`, e);
+          continue;
         }
       }
     }
+  }
 
-    // Step 3: Load metadata
+  private _loadAllMetadata(
+    discovered: import('./types.js').DiscoveredModule[],
+  ): Map<string, Record<string, unknown>> {
     const rawMetadata = new Map<string, Record<string, unknown>>();
     for (const dm of discovered) {
-      rawMetadata.set(
-        dm.canonicalId,
-        dm.metaPath ? loadMetadata(dm.metaPath) : {},
-      );
+      rawMetadata.set(dm.canonicalId, dm.metaPath ? loadMetadata(dm.metaPath) : {});
     }
+    return rawMetadata;
+  }
 
-    // Step 4: Resolve entry points
+  private async _resolveAllEntryPoints(
+    discovered: import('./types.js').DiscoveredModule[],
+    rawMetadata: Map<string, Record<string, unknown>>,
+  ): Promise<Map<string, unknown>> {
     const resolvedModules = new Map<string, unknown>();
     for (const dm of discovered) {
       const meta = rawMetadata.get(dm.canonicalId) ?? {};
       try {
         const mod = await resolveEntryPoint(dm.filePath, meta);
         resolvedModules.set(dm.canonicalId, mod);
-      } catch {
-        continue;
+      } catch (e) {
+        console.warn(`[apcore:registry] Failed to resolve entry point for ${dm.canonicalId}:`, e);
       }
     }
+    return resolvedModules;
+  }
 
-    // Step 5: Validate modules
+  private _validateAll(resolvedModules: Map<string, unknown>): Map<string, unknown> {
     const validModules = new Map<string, unknown>();
     for (const [modId, mod] of resolvedModules) {
-      const errors = validateModule(mod);
-      if (errors.length === 0) {
+      if (validateModule(mod).length === 0) {
         validModules.set(modId, mod);
       }
     }
+    return validModules;
+  }
 
-    // Step 6: Collect dependencies
+  private _resolveLoadOrder(
+    validModules: Map<string, unknown>,
+    rawMetadata: Map<string, Record<string, unknown>>,
+  ): string[] {
     const modulesWithDeps: Array<[string, DependencyInfo[]]> = [];
     for (const modId of validModules.keys()) {
       const meta = rawMetadata.get(modId) ?? {};
       const depsRaw = (meta['dependencies'] as Array<Record<string, unknown>>) ?? [];
-      const deps = depsRaw.length > 0 ? parseDependencies(depsRaw) : [];
-      modulesWithDeps.push([modId, deps]);
+      modulesWithDeps.push([modId, depsRaw.length > 0 ? parseDependencies(depsRaw) : []]);
     }
-
-    // Step 7: Resolve dependency order
     const knownIds = new Set(modulesWithDeps.map(([id]) => id));
-    const loadOrder = resolveDependencies(modulesWithDeps, knownIds);
+    return resolveDependencies(modulesWithDeps, knownIds);
+  }
 
-    // Step 8: Register in dependency order
-    let registeredCount = 0;
+  private _registerInOrder(
+    loadOrder: string[],
+    validModules: Map<string, unknown>,
+    rawMetadata: Map<string, Record<string, unknown>>,
+  ): number {
+    let count = 0;
     for (const modId of loadOrder) {
       const mod = validModules.get(modId)!;
-      const meta = rawMetadata.get(modId) ?? {};
-
       const modObj = mod as Record<string, unknown>;
-      const mergedMeta = mergeModuleMetadata(modObj, meta);
+      const mergedMeta = mergeModuleMetadata(modObj, rawMetadata.get(modId) ?? {});
 
       this._modules.set(modId, mod);
       this._moduleMeta.set(modId, mergedMeta);
 
-      // Call onLoad if available
       if (typeof modObj['onLoad'] === 'function') {
         try {
           (modObj['onLoad'] as () => void)();
-        } catch {
+        } catch (e) {
+          console.warn(`[apcore:registry] onLoad failed for ${modId}, skipping:`, e);
           this._modules.delete(modId);
           this._moduleMeta.delete(modId);
           continue;
@@ -167,10 +188,9 @@ export class Registry {
       }
 
       this._triggerEvent('register', modId, mod);
-      registeredCount++;
+      count++;
     }
-
-    return registeredCount;
+    return count;
   }
 
   register(moduleId: string, module: unknown): void {
@@ -211,8 +231,8 @@ export class Registry {
     if (typeof modObj['onUnload'] === 'function') {
       try {
         (modObj['onUnload'] as () => void)();
-      } catch {
-        // Swallow
+      } catch (e) {
+        console.warn(`[apcore:registry] onUnload failed for ${moduleId}:`, e);
       }
     }
 
@@ -302,8 +322,8 @@ export class Registry {
     for (const cb of callbacks) {
       try {
         cb(moduleId, module);
-      } catch {
-        // Swallow callback errors
+      } catch (e) {
+        console.warn(`[apcore:registry] Event callback error for '${event}' on ${moduleId}:`, e);
       }
     }
   }

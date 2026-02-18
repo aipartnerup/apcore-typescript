@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-02-18
+
+### Fixed
+
+- **Timer leak in executor** — `_executeWithTimeout` now calls `clearTimeout` in `.finally()` to prevent timer leak on normal completion
+- **Path traversal protection** — `resolveTarget` in binding loader rejects module paths containing `..` segments before dynamic `import()`
+- **Bare catch blocks** — 6 silent `catch {}` blocks in registry and middleware manager now log warnings with `[apcore:<subsystem>]` prefix
+- **Python-style error messages** — Fixed `FuncMissingTypeHintError` and `FuncMissingReturnTypeError` to use TypeScript syntax (`: string`, `: Record<string, unknown>`)
+- **Console.log in production** — Replaced `console.log` with `console.info` in logging middleware and `process.stdout.write` in tracing exporter
+
+### Changed
+
+- **Long method decomposition** — Broke up 4 oversized methods to meet ≤50 line guideline:
+  - `Executor.call()` (108 → 6 private helpers)
+  - `Registry.discover()` (110 → 7 private helpers)
+  - `ACL.load()` (71 → extracted `parseAclRule`)
+  - `jsonSchemaToTypeBox()` (80 → 5 converter helpers)
+- **Deeply readonly callChain** — `Context.callChain` type narrowed from `readonly string[]` to `readonly (readonly string[])` preventing mutation via push/splice
+- **Consolidated `deepCopy`** — Removed 4 duplicate `deepCopy` implementations; single shared version now lives in `src/utils/index.ts`
+
+### Added
+
+- **42 new tests** for previously uncovered modules:
+  - `tests/schema/test-annotations.test.ts` — 16 tests for `mergeAnnotations`, `mergeExamples`, `mergeMetadata`
+  - `tests/schema/test-exporter.test.ts` — 14 tests for `SchemaExporter` across all 4 export profiles
+  - `tests/test-logging-middleware.test.ts` — 12 tests for `LoggingMiddleware` before/after/onError
+
+## [0.1.1] - 2026-02-17
+
+### Fixed
+
+- Updated logo URL in README
+
+### Changed
+
+- Renamed package from `apcore` to `apcore-js`
+- Updated installation instructions
+
 ## [0.1.0] - 2026-02-16
 
 ### Added

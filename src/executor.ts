@@ -157,60 +157,85 @@ export class Executor {
     context?: Context | null,
   ): Promise<Record<string, unknown>> {
     let effectiveInputs = inputs ?? {};
-
-    // Step 1 -- Context
-    let ctx: Context;
-    if (context == null) {
-      ctx = Context.create(this);
-      ctx = ctx.child(moduleId);
-    } else {
-      ctx = context.child(moduleId);
-    }
-
-    // Step 2 -- Safety Checks
+    const ctx = this._createContext(moduleId, context);
     this._checkSafety(moduleId, ctx);
 
-    // Step 3 -- Lookup
+    const mod = this._lookupModule(moduleId);
+    this._checkAcl(moduleId, ctx);
+
+    effectiveInputs = this._validateInputs(mod, effectiveInputs, ctx);
+
+    return this._executeWithMiddleware(mod, moduleId, effectiveInputs, ctx);
+  }
+
+  private _createContext(moduleId: string, context?: Context | null): Context {
+    if (context == null) {
+      return Context.create(this).child(moduleId);
+    }
+    return context.child(moduleId);
+  }
+
+  private _lookupModule(moduleId: string): Record<string, unknown> {
     const module = this._registry.get(moduleId);
     if (module === null) {
       throw new ModuleNotFoundError(moduleId);
     }
+    return module as Record<string, unknown>;
+  }
 
-    const mod = module as Record<string, unknown>;
-
-    // Step 4 -- ACL
+  private _checkAcl(moduleId: string, ctx: Context): void {
     if (this._acl !== null) {
       const allowed = this._acl.check(ctx.callerId, moduleId, ctx);
       if (!allowed) {
         throw new ACLDeniedError(ctx.callerId, moduleId);
       }
     }
+  }
 
-    // Step 5 -- Input Validation and Redaction
+  private _validateInputs(
+    mod: Record<string, unknown>,
+    inputs: Record<string, unknown>,
+    ctx: Context,
+  ): Record<string, unknown> {
     const inputSchema = mod['inputSchema'] as TSchema | undefined;
-    if (inputSchema != null) {
-      if (!Value.Check(inputSchema, effectiveInputs)) {
-        const errors: Array<Record<string, unknown>> = [];
-        for (const error of Value.Errors(inputSchema, effectiveInputs)) {
-          errors.push({
-            field: error.path || '/',
-            code: String(error.type),
-            message: error.message,
-          });
-        }
-        throw new SchemaValidationError('Input validation failed', errors);
-      }
+    if (inputSchema == null) return inputs;
 
-      ctx.redactedInputs = redactSensitive(
-        effectiveInputs,
-        inputSchema as unknown as Record<string, unknown>,
-      );
+    this._validateSchema(inputSchema, inputs, 'Input');
+    ctx.redactedInputs = redactSensitive(
+      inputs,
+      inputSchema as unknown as Record<string, unknown>,
+    );
+    return inputs;
+  }
+
+  private _validateSchema(
+    schema: TSchema,
+    data: Record<string, unknown>,
+    direction: string,
+  ): void {
+    if (Value.Check(schema, data)) return;
+
+    const errors: Array<Record<string, unknown>> = [];
+    for (const error of Value.Errors(schema, data)) {
+      errors.push({
+        field: error.path || '/',
+        code: String(error.type),
+        message: error.message,
+      });
     }
+    throw new SchemaValidationError(`${direction} validation failed`, errors);
+  }
 
+  private async _executeWithMiddleware(
+    mod: Record<string, unknown>,
+    moduleId: string,
+    inputs: Record<string, unknown>,
+    ctx: Context,
+  ): Promise<Record<string, unknown>> {
+    let effectiveInputs = inputs;
     let executedMiddlewares: Middleware[] = [];
 
     try {
-      // Step 6 -- Middleware Before
       try {
         [effectiveInputs, executedMiddlewares] = this._middlewareManager.executeBefore(moduleId, effectiveInputs, ctx);
       } catch (e) {
@@ -226,29 +251,14 @@ export class Executor {
         throw e;
       }
 
-      // Step 7 -- Execute with timeout
       let output = await this._executeWithTimeout(mod, moduleId, effectiveInputs, ctx);
 
-      // Step 8 -- Output Validation
       const outputSchema = mod['outputSchema'] as TSchema | undefined;
       if (outputSchema != null) {
-        if (!Value.Check(outputSchema, output)) {
-          const errors: Array<Record<string, unknown>> = [];
-          for (const error of Value.Errors(outputSchema, output)) {
-            errors.push({
-              field: error.path || '/',
-              code: String(error.type),
-              message: error.message,
-            });
-          }
-          throw new SchemaValidationError('Output validation failed', errors);
-        }
+        this._validateSchema(outputSchema, output, 'Output');
       }
 
-      // Step 9 -- Middleware After
       output = this._middlewareManager.executeAfter(moduleId, effectiveInputs, output, ctx);
-
-      // Step 10 -- Return
       return output;
     } catch (exc) {
       if (executedMiddlewares.length > 0) {
@@ -337,12 +347,15 @@ export class Executor {
       return executionPromise;
     }
 
+    let timer: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
+      timer = setTimeout(() => {
         reject(new ModuleTimeoutError(moduleId, timeoutMs));
       }, timeoutMs);
     });
 
-    return Promise.race([executionPromise, timeoutPromise]);
+    return Promise.race([executionPromise, timeoutPromise]).finally(() => {
+      clearTimeout(timer);
+    });
   }
 }

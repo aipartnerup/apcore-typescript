@@ -16,6 +16,42 @@ export interface ACLRule {
   conditions?: Record<string, unknown> | null;
 }
 
+function parseAclRule(rawRule: unknown, index: number): ACLRule {
+  if (typeof rawRule !== 'object' || rawRule === null || Array.isArray(rawRule)) {
+    throw new ACLRuleError(`Rule ${index} must be a mapping, got ${typeof rawRule}`);
+  }
+
+  const ruleObj = rawRule as Record<string, unknown>;
+  for (const key of ['callers', 'targets', 'effect']) {
+    if (!(key in ruleObj)) {
+      throw new ACLRuleError(`Rule ${index} missing required key '${key}'`);
+    }
+  }
+
+  const effect = ruleObj['effect'] as string;
+  if (effect !== 'allow' && effect !== 'deny') {
+    throw new ACLRuleError(`Rule ${index} has invalid effect '${effect}', must be 'allow' or 'deny'`);
+  }
+
+  const callers = ruleObj['callers'];
+  if (!Array.isArray(callers)) {
+    throw new ACLRuleError(`Rule ${index} 'callers' must be a list, got ${typeof callers}`);
+  }
+
+  const targets = ruleObj['targets'];
+  if (!Array.isArray(targets)) {
+    throw new ACLRuleError(`Rule ${index} 'targets' must be a list, got ${typeof targets}`);
+  }
+
+  return {
+    callers: callers as string[],
+    targets: targets as string[],
+    effect,
+    description: (ruleObj['description'] as string) ?? '',
+    conditions: (ruleObj['conditions'] as Record<string, unknown>) ?? null,
+  };
+}
+
 export class ACL {
   private _rules: ACLRule[];
   private _defaultEffect: string;
@@ -56,44 +92,7 @@ export class ACL {
     }
 
     const defaultEffect = (dataObj['default_effect'] as string) ?? 'deny';
-    const rules: ACLRule[] = [];
-
-    for (let i = 0; i < rawRules.length; i++) {
-      const rawRule = rawRules[i];
-      if (typeof rawRule !== 'object' || rawRule === null || Array.isArray(rawRule)) {
-        throw new ACLRuleError(`Rule ${i} must be a mapping, got ${typeof rawRule}`);
-      }
-
-      const ruleObj = rawRule as Record<string, unknown>;
-      for (const key of ['callers', 'targets', 'effect']) {
-        if (!(key in ruleObj)) {
-          throw new ACLRuleError(`Rule ${i} missing required key '${key}'`);
-        }
-      }
-
-      const effect = ruleObj['effect'] as string;
-      if (effect !== 'allow' && effect !== 'deny') {
-        throw new ACLRuleError(`Rule ${i} has invalid effect '${effect}', must be 'allow' or 'deny'`);
-      }
-
-      const callers = ruleObj['callers'];
-      if (!Array.isArray(callers)) {
-        throw new ACLRuleError(`Rule ${i} 'callers' must be a list, got ${typeof callers}`);
-      }
-
-      const targets = ruleObj['targets'];
-      if (!Array.isArray(targets)) {
-        throw new ACLRuleError(`Rule ${i} 'targets' must be a list, got ${typeof targets}`);
-      }
-
-      rules.push({
-        callers: callers as string[],
-        targets: targets as string[],
-        effect,
-        description: (ruleObj['description'] as string) ?? '',
-        conditions: (ruleObj['conditions'] as Record<string, unknown>) ?? null,
-      });
-    }
+    const rules = rawRules.map((raw, i) => parseAclRule(raw, i));
 
     const acl = new ACL(rules, defaultEffect);
     acl._yamlPath = yamlPath;

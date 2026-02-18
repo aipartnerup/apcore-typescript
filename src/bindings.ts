@@ -3,7 +3,7 @@
  */
 
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
-import { resolve, dirname, join, basename } from 'node:path';
+import { resolve, dirname, join, basename, isAbsolute } from 'node:path';
 import { Type, type TSchema } from '@sinclair/typebox';
 import yaml from 'js-yaml';
 import { FunctionModule } from './decorator.js';
@@ -17,19 +17,6 @@ import {
 } from './errors.js';
 import type { Registry } from './registry/registry.js';
 import { jsonSchemaToTypeBox } from './schema/loader.js';
-
-const JSON_SCHEMA_TYPE_MAP: Record<string, () => TSchema> = {
-  string: () => Type.String(),
-  integer: () => Type.Integer(),
-  number: () => Type.Number(),
-  boolean: () => Type.Boolean(),
-  array: () => Type.Array(Type.Unknown()),
-  object: () => Type.Record(Type.String(), Type.Unknown()),
-};
-
-function buildSchemaFromJsonSchema(schema: Record<string, unknown>): TSchema {
-  return jsonSchemaToTypeBox(schema);
-}
 
 export class BindingLoader {
   async loadBindings(filePath: string, registry: Registry): Promise<FunctionModule[]> {
@@ -113,6 +100,12 @@ export class BindingLoader {
 
     const [modulePath, callableName] = targetString.split(':', 2);
 
+    if (modulePath.includes('..')) {
+      throw new BindingInvalidTargetError(
+        `Module path '${modulePath}' must not contain '..' segments`,
+      );
+    }
+
     let mod: Record<string, unknown>;
     try {
       mod = await import(modulePath);
@@ -165,8 +158,8 @@ export class BindingLoader {
     if ('input_schema' in binding || 'output_schema' in binding) {
       const inputSchemaDict = (binding['input_schema'] as Record<string, unknown>) ?? {};
       const outputSchemaDict = (binding['output_schema'] as Record<string, unknown>) ?? {};
-      inputSchema = buildSchemaFromJsonSchema(inputSchemaDict);
-      outputSchema = buildSchemaFromJsonSchema(outputSchemaDict);
+      inputSchema = jsonSchemaToTypeBox(inputSchemaDict);
+      outputSchema = jsonSchemaToTypeBox(outputSchemaDict);
     } else if ('schema_ref' in binding) {
       const refPath = resolve(bindingFileDir, binding['schema_ref'] as string);
       if (!existsSync(refPath)) {
@@ -178,10 +171,10 @@ export class BindingLoader {
       } catch (e) {
         throw new BindingFileInvalidError(refPath, `YAML parse error: ${e}`);
       }
-      inputSchema = buildSchemaFromJsonSchema(
+      inputSchema = jsonSchemaToTypeBox(
         (refData['input_schema'] as Record<string, unknown>) ?? {},
       );
-      outputSchema = buildSchemaFromJsonSchema(
+      outputSchema = jsonSchemaToTypeBox(
         (refData['output_schema'] as Record<string, unknown>) ?? {},
       );
     } else {

@@ -21,7 +21,7 @@ export function createIdentity(
 export class Context {
   readonly traceId: string;
   readonly callerId: string | null;
-  readonly callChain: string[];
+  readonly callChain: readonly string[];
   readonly executor: unknown;
   readonly identity: Identity | null;
   redactedInputs: Record<string, unknown> | null;
