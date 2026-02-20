@@ -11,6 +11,7 @@ export interface ModuleAnnotations {
   readonly idempotent: boolean;
   readonly requiresApproval: boolean;
   readonly openWorld: boolean;
+  readonly streaming: boolean;
 }
 
 export const DEFAULT_ANNOTATIONS: ModuleAnnotations = Object.freeze({
@@ -19,6 +20,7 @@ export const DEFAULT_ANNOTATIONS: ModuleAnnotations = Object.freeze({
   idempotent: false,
   requiresApproval: false,
   openWorld: true,
+  streaming: false,
 });
 
 export interface ModuleExample {

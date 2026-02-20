@@ -55,6 +55,7 @@ describe('SchemaExporter', () => {
         idempotent: true,
         requiresApproval: false,
         openWorld: false,
+        streaming: false,
       };
       const result = exporter.exportMcp(sd, annotations, 'MyTool');
       expect(result['name']).toBe('MyTool');

@@ -11,6 +11,7 @@ const ANNOTATION_FIELDS: ReadonlyArray<keyof ModuleAnnotations> = [
   'idempotent',
   'requiresApproval',
   'openWorld',
+  'streaming',
 ];
 
 export function mergeAnnotations(

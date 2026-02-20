@@ -180,6 +180,96 @@ export class Executor {
     return this.call(moduleId, inputs, context);
   }
 
+  /**
+   * Streaming execution pipeline. If the module exposes a stream() async generator,
+   * yields each chunk. Otherwise falls back to call() and yields a single chunk.
+   *
+   * Pipeline: context -> safety -> lookup -> ACL -> validate inputs -> before-middleware
+   *   -> stream (or fallback to execute) -> validate accumulated output -> after-middleware
+   */
+  async *stream(
+    moduleId: string,
+    inputs?: Record<string, unknown> | null,
+    context?: Context | null,
+  ): AsyncGenerator<Record<string, unknown>> {
+    let effectiveInputs = inputs ?? {};
+    const ctx = this._createContext(moduleId, context);
+    this._checkSafety(moduleId, ctx);
+
+    const mod = this._lookupModule(moduleId);
+    this._checkAcl(moduleId, ctx);
+
+    effectiveInputs = this._validateInputs(mod, effectiveInputs, ctx);
+
+    yield* this._streamWithMiddleware(mod, moduleId, effectiveInputs, ctx);
+  }
+
+  private async *_streamWithMiddleware(
+    mod: Record<string, unknown>,
+    moduleId: string,
+    inputs: Record<string, unknown>,
+    ctx: Context,
+  ): AsyncGenerator<Record<string, unknown>> {
+    let effectiveInputs = inputs;
+    let executedMiddlewares: Middleware[] = [];
+
+    try {
+      try {
+        [effectiveInputs, executedMiddlewares] = this._middlewareManager.executeBefore(moduleId, effectiveInputs, ctx);
+      } catch (e) {
+        if (e instanceof MiddlewareChainError) {
+          executedMiddlewares = e.executedMiddlewares;
+          const recovery = this._middlewareManager.executeOnError(
+            moduleId, effectiveInputs, e.original, ctx, executedMiddlewares,
+          );
+          if (recovery !== null) {
+            yield recovery;
+            return;
+          }
+          executedMiddlewares = [];
+          throw e.original;
+        }
+        throw e;
+      }
+
+      const streamFn = mod['stream'] as
+        | ((inputs: Record<string, unknown>, context: Context) => AsyncGenerator<Record<string, unknown>>)
+        | undefined;
+
+      if (typeof streamFn === 'function') {
+        // Module has a stream() method: iterate and yield each chunk
+        let lastChunk: Record<string, unknown> = {};
+        for await (const chunk of streamFn.call(mod, effectiveInputs, ctx)) {
+          lastChunk = chunk;
+          yield chunk;
+        }
+
+        // Validate accumulated output (last chunk) against output schema
+        this._validateOutput(mod, lastChunk);
+
+        // Run after-middleware on the accumulated result
+        this._middlewareManager.executeAfter(moduleId, effectiveInputs, lastChunk, ctx);
+      } else {
+        // Fallback: execute normally and yield single chunk
+        let output = await this._executeWithTimeout(mod, moduleId, effectiveInputs, ctx);
+        this._validateOutput(mod, output);
+        output = this._middlewareManager.executeAfter(moduleId, effectiveInputs, output, ctx);
+        yield output;
+      }
+    } catch (exc) {
+      if (executedMiddlewares.length > 0) {
+        const recovery = this._middlewareManager.executeOnError(
+          moduleId, effectiveInputs, exc as Error, ctx, executedMiddlewares,
+        );
+        if (recovery !== null) {
+          yield recovery;
+          return;
+        }
+      }
+      throw exc;
+    }
+  }
+
   private _createContext(moduleId: string, context?: Context | null): Context {
     if (context == null) {
       return Context.create(this).child(moduleId);
@@ -265,10 +355,7 @@ export class Executor {
 
       let output = await this._executeWithTimeout(mod, moduleId, effectiveInputs, ctx);
 
-      const outputSchema = mod['outputSchema'] as TSchema | undefined;
-      if (outputSchema != null) {
-        this._validateSchema(outputSchema, output, 'Output');
-      }
+      this._validateOutput(mod, output);
 
       output = this._middlewareManager.executeAfter(moduleId, effectiveInputs, output, ctx);
       return output;
@@ -280,6 +367,13 @@ export class Executor {
         if (recovery !== null) return recovery;
       }
       throw exc;
+    }
+  }
+
+  private _validateOutput(mod: Record<string, unknown>, output: Record<string, unknown>): void {
+    const outputSchema = mod['outputSchema'] as TSchema | undefined;
+    if (outputSchema != null) {
+      this._validateSchema(outputSchema, output, 'Output');
     }
   }
 

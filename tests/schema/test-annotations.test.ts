@@ -25,6 +25,7 @@ describe('mergeAnnotations', () => {
       idempotent: true,
       requiresApproval: false,
       openWorld: false,
+      streaming: false,
     };
     const result = mergeAnnotations(null, codeAnnotations);
     expect(result.readonly).toBe(true);
@@ -39,6 +40,7 @@ describe('mergeAnnotations', () => {
       idempotent: false,
       requiresApproval: false,
       openWorld: true,
+      streaming: false,
     };
     const yamlAnnotations = { readonly: false, destructive: true };
     const result = mergeAnnotations(yamlAnnotations, codeAnnotations);

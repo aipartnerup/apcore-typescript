@@ -37,6 +37,7 @@ function createModule(
       idempotent: true,
       requiresApproval: false,
       openWorld: false,
+      streaming: false,
     },
     examples: [
       {
