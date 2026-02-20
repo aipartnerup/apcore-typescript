@@ -201,7 +201,7 @@ export class Registry {
         }
       }
 
-      this._triggerEvent('register', modId, mod);
+      this._triggerEvent(REGISTRY_EVENTS.REGISTER, modId, mod);
       count++;
     }
     return count;
@@ -234,7 +234,7 @@ export class Registry {
       }
     }
 
-    this._triggerEvent('register', moduleId, module);
+    this._triggerEvent(REGISTRY_EVENTS.REGISTER, moduleId, module);
   }
 
   unregister(moduleId: string): boolean {
@@ -255,7 +255,7 @@ export class Registry {
       }
     }
 
-    this._triggerEvent('unregister', moduleId, module);
+    this._triggerEvent(REGISTRY_EVENTS.UNREGISTER, moduleId, module);
     return true;
   }
 
