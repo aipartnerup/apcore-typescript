@@ -148,6 +148,39 @@ describe('Executor.stream()', () => {
     expect(chunks[0]['recovered']).toBe(true);
   });
 
+  it('accumulates chunks via shallow merge for after-middleware', async () => {
+    const registry = new Registry();
+    const mod = {
+      description: 'multi-key streaming module',
+      inputSchema: Type.Object({ prefix: Type.String() }),
+      outputSchema: Type.Object({ a: Type.Optional(Type.String()), b: Type.Optional(Type.String()) }),
+      execute: async (inputs: Record<string, unknown>) => ({ a: `${inputs['prefix']}_a`, b: `${inputs['prefix']}_b` }),
+      async *stream(inputs: Record<string, unknown>) {
+        yield { a: `${inputs['prefix']}_a` };
+        yield { b: `${inputs['prefix']}_b` };
+      },
+    };
+    registry.register('multi', mod);
+
+    let afterOutput: Record<string, unknown> | null = null;
+    const executor = new Executor({ registry });
+    executor.useAfter((_mid, _inputs, output) => {
+      afterOutput = { ...output };
+      return null;
+    });
+
+    const chunks: Record<string, unknown>[] = [];
+    for await (const chunk of executor.stream('multi', { prefix: 'test' })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]).toEqual({ a: 'test_a' });
+    expect(chunks[1]).toEqual({ b: 'test_b' });
+    // After-middleware should receive the MERGED result
+    expect(afterOutput).toEqual({ a: 'test_a', b: 'test_b' });
+  });
+
   it('validates output schema on accumulated streaming result', async () => {
     const registry = new Registry();
     const mod = new FunctionModule({

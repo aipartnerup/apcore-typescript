@@ -238,17 +238,17 @@ export class Executor {
 
       if (typeof streamFn === 'function') {
         // Module has a stream() method: iterate and yield each chunk
-        let lastChunk: Record<string, unknown> = {};
+        let accumulated: Record<string, unknown> = {};
         for await (const chunk of streamFn.call(mod, effectiveInputs, ctx)) {
-          lastChunk = chunk;
+          accumulated = { ...accumulated, ...chunk };
           yield chunk;
         }
 
-        // Validate accumulated output (last chunk) against output schema
-        this._validateOutput(mod, lastChunk);
+        // Validate accumulated output against output schema
+        this._validateOutput(mod, accumulated);
 
         // Run after-middleware on the accumulated result
-        this._middlewareManager.executeAfter(moduleId, effectiveInputs, lastChunk, ctx);
+        this._middlewareManager.executeAfter(moduleId, effectiveInputs, accumulated, ctx);
       } else {
         // Fallback: execute normally and yield single chunk
         let output = await this._executeWithTimeout(mod, moduleId, effectiveInputs, ctx);
