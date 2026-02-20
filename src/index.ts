@@ -5,7 +5,7 @@
 // Core
 export { Context, createIdentity } from './context.js';
 export type { Identity } from './context.js';
-export { Registry } from './registry/registry.js';
+export { Registry, REGISTRY_EVENTS, MODULE_ID_PATTERN } from './registry/registry.js';
 export { Executor, redactSensitive, REDACTED_VALUE } from './executor.js';
 
 // Module types
@@ -42,7 +42,11 @@ export {
   BindingFileInvalidError,
   CircularDependencyError,
   ModuleLoadError,
+  ModuleExecuteError,
+  InternalError,
+  ErrorCodes,
 } from './errors.js';
+export type { ErrorCode } from './errors.js';
 
 // ACL
 export { ACL } from './acl.js';

@@ -72,21 +72,21 @@ describe('E2E Flow', () => {
     });
     const modB = new FunctionModule({
       execute: (inputs) => ({ value: (inputs['x'] as number) + 10 }),
-      moduleId: 'math.addTen',
+      moduleId: 'math.add_ten',
       inputSchema: Type.Object({ x: Type.Number() }),
       outputSchema: Type.Object({ value: Type.Number() }),
       description: 'Add ten',
     });
     registry.register('math.double', modA);
-    registry.register('math.addTen', modB);
+    registry.register('math.add_ten', modB);
 
     const executor = new Executor({ registry });
-    const ctx = Context.create(executor, createIdentity('test-user'));
+    const ctx = Context.create(executor, createIdentity('test_user'));
 
     const r1 = await executor.call('math.double', { x: 5 }, ctx);
     expect(r1['value']).toBe(10);
 
-    const r2 = await executor.call('math.addTen', { x: r1['value'] as number }, ctx);
+    const r2 = await executor.call('math.add_ten', { x: r1['value'] as number }, ctx);
     expect(r2['value']).toBe(20);
   });
 

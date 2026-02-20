@@ -13,6 +13,20 @@ import { scanExtensions, scanMultiRoot } from './scanner.js';
 import type { DependencyInfo, ModuleDescriptor } from './types.js';
 import { validateModule } from './validation.js';
 
+/**
+ * Standard registry event names.
+ */
+export const REGISTRY_EVENTS = Object.freeze({
+  REGISTER: "register",
+  UNREGISTER: "unregister",
+} as const);
+
+/**
+ * Valid module ID pattern. Only lowercase letters, digits, underscores, and dots.
+ * Hyphens are prohibited to ensure bijective MCP/OpenAI tool name normalization.
+ */
+export const MODULE_ID_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
+
 type EventCallback = (moduleId: string, module: unknown) => void;
 
 export class Registry {
@@ -20,8 +34,8 @@ export class Registry {
   private _modules: Map<string, unknown> = new Map();
   private _moduleMeta: Map<string, Record<string, unknown>> = new Map();
   private _callbacks: Map<string, EventCallback[]> = new Map([
-    ['register', []],
-    ['unregister', []],
+    [REGISTRY_EVENTS.REGISTER, []],
+    [REGISTRY_EVENTS.UNREGISTER, []],
   ]);
   private _idMap: Record<string, Record<string, unknown>> = {};
   private _schemaCache: Map<string, Record<string, unknown>> = new Map();
@@ -194,8 +208,13 @@ export class Registry {
   }
 
   register(moduleId: string, module: unknown): void {
-    if (!moduleId) {
-      throw new InvalidInputError('module_id must be a non-empty string');
+    if (!moduleId || typeof moduleId !== "string") {
+      throw new InvalidInputError("Module ID must be a non-empty string");
+    }
+    if (!MODULE_ID_PATTERN.test(moduleId)) {
+      throw new InvalidInputError(
+        `Invalid module ID: "${moduleId}". Must match pattern: ${MODULE_ID_PATTERN} (lowercase, digits, underscores, dots only; no hyphens)`,
+      );
     }
 
     if (this._modules.has(moduleId)) {
@@ -311,8 +330,11 @@ export class Registry {
   }
 
   on(event: string, callback: EventCallback): void {
-    if (!this._callbacks.has(event)) {
-      throw new InvalidInputError(`Invalid event: ${event}. Must be 'register' or 'unregister'`);
+    const validEvents = Object.values(REGISTRY_EVENTS) as string[];
+    if (!validEvents.includes(event)) {
+      throw new InvalidInputError(
+        `Invalid event: ${event}. Must be one of: ${validEvents.map((e) => `'${e}'`).join(', ')}`,
+      );
     }
     this._callbacks.get(event)!.push(callback);
   }

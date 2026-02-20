@@ -367,3 +367,58 @@ export class ModuleLoadError extends ModuleError {
     this.name = 'ModuleLoadError';
   }
 }
+
+export class ModuleExecuteError extends ModuleError {
+  constructor(moduleId: string, reason: string, options?: { cause?: Error; traceId?: string }) {
+    super(
+      'MODULE_EXECUTE_ERROR',
+      `Failed to execute module '${moduleId}': ${reason}`,
+      { moduleId, reason },
+      options?.cause,
+      options?.traceId,
+    );
+    this.name = 'ModuleExecuteError';
+  }
+}
+
+export class InternalError extends ModuleError {
+  constructor(message: string = 'Internal error', options?: { cause?: Error; traceId?: string }) {
+    super('GENERAL_INTERNAL_ERROR', message, {}, options?.cause, options?.traceId);
+    this.name = 'InternalError';
+  }
+}
+
+/**
+ * All framework error codes as constants.
+ * Use these instead of hardcoding error code strings.
+ */
+export const ErrorCodes = Object.freeze({
+  CONFIG_NOT_FOUND: "CONFIG_NOT_FOUND",
+  CONFIG_INVALID: "CONFIG_INVALID",
+  ACL_RULE_ERROR: "ACL_RULE_ERROR",
+  ACL_DENIED: "ACL_DENIED",
+  MODULE_NOT_FOUND: "MODULE_NOT_FOUND",
+  MODULE_TIMEOUT: "MODULE_TIMEOUT",
+  MODULE_LOAD_ERROR: "MODULE_LOAD_ERROR",
+  MODULE_EXECUTE_ERROR: "MODULE_EXECUTE_ERROR",
+  SCHEMA_VALIDATION_ERROR: "SCHEMA_VALIDATION_ERROR",
+  SCHEMA_NOT_FOUND: "SCHEMA_NOT_FOUND",
+  SCHEMA_PARSE_ERROR: "SCHEMA_PARSE_ERROR",
+  SCHEMA_CIRCULAR_REF: "SCHEMA_CIRCULAR_REF",
+  CALL_DEPTH_EXCEEDED: "CALL_DEPTH_EXCEEDED",
+  CIRCULAR_CALL: "CIRCULAR_CALL",
+  CALL_FREQUENCY_EXCEEDED: "CALL_FREQUENCY_EXCEEDED",
+  GENERAL_INVALID_INPUT: "GENERAL_INVALID_INPUT",
+  GENERAL_INTERNAL_ERROR: "GENERAL_INTERNAL_ERROR",
+  FUNC_MISSING_TYPE_HINT: "FUNC_MISSING_TYPE_HINT",
+  FUNC_MISSING_RETURN_TYPE: "FUNC_MISSING_RETURN_TYPE",
+  BINDING_INVALID_TARGET: "BINDING_INVALID_TARGET",
+  BINDING_MODULE_NOT_FOUND: "BINDING_MODULE_NOT_FOUND",
+  BINDING_CALLABLE_NOT_FOUND: "BINDING_CALLABLE_NOT_FOUND",
+  BINDING_NOT_CALLABLE: "BINDING_NOT_CALLABLE",
+  BINDING_SCHEMA_MISSING: "BINDING_SCHEMA_MISSING",
+  BINDING_FILE_INVALID: "BINDING_FILE_INVALID",
+  CIRCULAR_DEPENDENCY: "CIRCULAR_DEPENDENCY",
+} as const);
+
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

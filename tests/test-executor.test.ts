@@ -221,16 +221,16 @@ describe('Executor', () => {
     let capturedCtx: Context | null = null;
     const mod = new FunctionModule({
       execute: (_inputs, ctx) => { capturedCtx = ctx; return { ok: true }; },
-      moduleId: 'ctx-test',
+      moduleId: 'ctx_test',
       inputSchema: Type.Object({}),
       outputSchema: Type.Object({ ok: Type.Boolean() }),
       description: 'Context capture',
     });
-    registry.register('ctx-test', mod);
+    registry.register('ctx_test', mod);
 
     const executor = new Executor({ registry });
     const ctx = Context.create(executor, createIdentity('user1'));
-    await executor.call('ctx-test', {}, ctx);
+    await executor.call('ctx_test', {}, ctx);
 
     expect(capturedCtx).not.toBeNull();
     expect(capturedCtx!.traceId).toBe(ctx.traceId);

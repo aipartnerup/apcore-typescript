@@ -168,6 +168,18 @@ export class Executor {
     return this._executeWithMiddleware(mod, moduleId, effectiveInputs, ctx);
   }
 
+  /**
+   * Alias for call(). Provided for compatibility with MCP bridge packages
+   * that may call callAsync() by convention.
+   */
+  async callAsync(
+    moduleId: string,
+    inputs?: Record<string, unknown> | null,
+    context?: Context | null,
+  ): Promise<Record<string, unknown>> {
+    return this.call(moduleId, inputs, context);
+  }
+
   private _createContext(moduleId: string, context?: Context | null): Context {
     if (context == null) {
       return Context.create(this).child(moduleId);
