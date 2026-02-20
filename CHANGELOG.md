@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-20
+
+### Changed
+- Use shallow merge for `stream()` accumulation instead of last-chunk.
+
+### Added
+- Add `Executor.stream()` async generator and `ModuleAnnotations.streaming` for streaming support in the core execution pipeline.
+
+### Co-Authors
+- Claude Opus 4.6 <noreply@anthropic.com>
+
+### Added
+
+- **Error classes and constants**
+  - `ModuleExecuteError` — New error class for module execution failures
+  - `InternalError` — New error class for general internal errors
+  - `ErrorCodes` — Frozen object with all 26 error code strings for consistent error code usage
+  - `ErrorCode` — Type definition for all error codes
+- **Registry constants**
+  - `REGISTRY_EVENTS` — Frozen object with standard event names (`register`, `unregister`)
+  - `MODULE_ID_PATTERN` — Regex pattern enforcing lowercase/digits/underscores/dots for module IDs (no hyphens allowed to ensure bijective MCP tool name normalization)
+- **Executor methods**
+  - `Executor.callAsync()` — Alias for `call()` for compatibility with MCP bridge packages
+
+### Changed
+
+- **Module ID validation** — Registry now validates module IDs against `MODULE_ID_PATTERN` on registration, rejecting IDs with hyphens or invalid characters
+- **Event handling** — Registry event validation now uses `REGISTRY_EVENTS` constants instead of hardcoded strings
+- **Test updates** — Updated tests to use underscore-separated module IDs instead of hyphens (e.g., `math.add_ten` instead of `math.addTen`, `ctx_test` instead of `ctx-test`)
+
+### Fixed
+
+- **String literals in Registry** — Replaced hardcoded `'register'` and `'unregister'` strings with `REGISTRY_EVENTS.REGISTER` and `REGISTRY_EVENTS.UNREGISTER` constants in event triggers for consistency
+
 ## [0.2.0] - 2026-02-20
 
 ### Added
