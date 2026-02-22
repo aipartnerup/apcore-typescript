@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { v4 as uuidv4 } from 'uuid';
 import { Type } from '@sinclair/typebox';
 import { Executor } from '../../src/executor.js';
 import { FunctionModule } from '../../src/decorator.js';
@@ -133,7 +134,7 @@ describe('ACL Integration', () => {
 
     // Deep call chain (depth > 2) - denied by ACL condition
     const deepCtx = new Context(
-      crypto.randomUUID(),
+      uuidv4(),
       'caller1',
       ['mod1', 'mod2', 'mod3'],
       executor,
