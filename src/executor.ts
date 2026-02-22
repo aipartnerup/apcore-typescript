@@ -78,8 +78,11 @@ function redactFields(data: Record<string, unknown>, schemaDict: Record<string, 
 
 function redactSecretPrefix(data: Record<string, unknown>): void {
   for (const key of Object.keys(data)) {
-    if (key.startsWith('_secret_') && data[key] !== null && data[key] !== undefined) {
+    const value = data[key];
+    if (key.startsWith('_secret_') && value !== null && value !== undefined) {
       data[key] = REDACTED_VALUE;
+    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      redactSecretPrefix(value as Record<string, unknown>);
     }
   }
 }
@@ -90,7 +93,6 @@ export class Executor {
   private _acl: ACL | null;
   private _config: Config | null;
   private _defaultTimeout: number;
-  private _globalTimeout: number;
   private _maxCallDepth: number;
   private _maxModuleRepeat: number;
 
@@ -113,12 +115,10 @@ export class Executor {
 
     if (this._config !== null) {
       this._defaultTimeout = (this._config.get('executor.default_timeout') as number) ?? 30000;
-      this._globalTimeout = (this._config.get('executor.global_timeout') as number) ?? 60000;
       this._maxCallDepth = (this._config.get('executor.max_call_depth') as number) ?? 32;
       this._maxModuleRepeat = (this._config.get('executor.max_module_repeat') as number) ?? 3;
     } else {
       this._defaultTimeout = 30000;
-      this._globalTimeout = 60000;
       this._maxCallDepth = 32;
       this._maxModuleRepeat = 3;
     }
@@ -186,6 +186,10 @@ export class Executor {
    *
    * Pipeline: context -> safety -> lookup -> ACL -> validate inputs -> before-middleware
    *   -> stream (or fallback to execute) -> validate accumulated output -> after-middleware
+   *
+   * Note: In the streaming path, after-middleware runs on the accumulated output for
+   * validation/side-effects but its return value is not yielded since chunks were already
+   * emitted. In the non-streaming fallback, after-middleware can transform the output.
    */
   async *stream(
     moduleId: string,
@@ -442,14 +446,18 @@ export class Executor {
       throw new InvalidInputError(`Negative timeout: ${timeoutMs}ms`);
     }
 
-    const executeFn = mod['execute'] as (
-      inputs: Record<string, unknown>,
-      context: Context,
-    ) => Promise<Record<string, unknown>> | Record<string, unknown>;
+    const executeFn = mod['execute'];
+    if (typeof executeFn !== 'function') {
+      throw new InvalidInputError(`Module '${moduleId}' has no execute method`);
+    }
 
-    const executionPromise = Promise.resolve(executeFn.call(mod, inputs, ctx));
+    const executionPromise = Promise.resolve(
+      (executeFn as (inputs: Record<string, unknown>, context: Context) => Promise<Record<string, unknown>> | Record<string, unknown>)
+        .call(mod, inputs, ctx),
+    );
 
     if (timeoutMs === 0) {
+      console.warn('[apcore:executor] Timeout is 0, timeout limit disabled');
       return executionPromise;
     }
 

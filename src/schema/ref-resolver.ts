@@ -139,11 +139,23 @@ export class RefResolver {
     if (refString.includes('#')) {
       const [filePart, pointer] = refString.split('#', 2);
       const base = currentFile ? dirname(currentFile) : this._schemasDir;
-      return [resolve(base, filePart), pointer];
+      const resolvedPath = resolve(base, filePart);
+      this._assertWithinSchemasDir(resolvedPath, refString);
+      return [resolvedPath, pointer];
     }
 
     const base = currentFile ? dirname(currentFile) : this._schemasDir;
-    return [resolve(base, refString), ''];
+    const resolvedPath = resolve(base, refString);
+    this._assertWithinSchemasDir(resolvedPath, refString);
+    return [resolvedPath, ''];
+  }
+
+  private _assertWithinSchemasDir(resolvedPath: string, refString: string): void {
+    if (!resolvedPath.startsWith(this._schemasDir + '/') && resolvedPath !== this._schemasDir) {
+      throw new SchemaNotFoundError(
+        `Reference '${refString}' resolves outside schemas directory`,
+      );
+    }
   }
 
   private _convertCanonicalToPath(uri: string): [string, string] {

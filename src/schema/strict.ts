@@ -15,7 +15,7 @@ export function applyLlmDescriptions(node: unknown): void {
   if (typeof node !== 'object' || node === null || Array.isArray(node)) return;
 
   const obj = node as Record<string, unknown>;
-  if ('x-llm-description' in obj && 'description' in obj) {
+  if ('x-llm-description' in obj) {
     obj['description'] = obj['x-llm-description'];
   }
 
@@ -92,6 +92,16 @@ function convertToStrict(node: unknown): void {
           if (!(prop['type'] as string[]).includes('null')) {
             (prop['type'] as string[]).push('null');
           }
+        }
+      } else if ('oneOf' in prop && Array.isArray(prop['oneOf'])) {
+        const variants = prop['oneOf'] as Record<string, unknown>[];
+        if (!variants.some((v) => v['type'] === 'null')) {
+          variants.push({ type: 'null' });
+        }
+      } else if ('anyOf' in prop && Array.isArray(prop['anyOf'])) {
+        const variants = prop['anyOf'] as Record<string, unknown>[];
+        if (!variants.some((v) => v['type'] === 'null')) {
+          variants.push({ type: 'null' });
         }
       } else {
         properties[name] = { oneOf: [prop, { type: 'null' }] };

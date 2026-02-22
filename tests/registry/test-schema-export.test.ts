@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Type } from '@sinclair/typebox';
 import { Registry } from '../../src/registry/registry.js';
 import { FunctionModule } from '../../src/decorator.js';
-import { ModuleNotFoundError } from '../../src/errors.js';
+import { InvalidInputError, ModuleNotFoundError } from '../../src/errors.js';
 import {
   getSchema,
   exportSchema,
@@ -218,8 +218,138 @@ describe('exportAllSchemas', () => {
     expect((parsed['strict.a']['input_schema'] as Record<string, unknown>)['additionalProperties']).toBe(false);
   });
 
+  it('applies compact mode to all schemas', () => {
+    const mod = createModule('compact.all');
+    const registry = makeRegistry(['compact.all', mod]);
+
+    const result = exportAllSchemas(registry, 'json', false, true);
+    const parsed = JSON.parse(result);
+    expect(parsed['compact.all']['description']).toBe('A test module.');
+    expect(parsed['compact.all']['examples']).toBeUndefined();
+  });
+
   it('returns empty JSON object for empty registry', () => {
     const registry = new Registry();
     expect(JSON.parse(exportAllSchemas(registry))).toEqual({});
+  });
+});
+
+describe('exportSchema with profile', () => {
+  it('exports with mcp profile and returns valid JSON with MCP shape', () => {
+    const mod = createModule('mcp.mod');
+    const registry = makeRegistry(['mcp.mod', mod]);
+
+    const result = exportSchema(registry, 'mcp.mod', 'json', false, false, 'mcp');
+    const parsed = JSON.parse(result);
+    expect(parsed['name']).toBeDefined();
+    expect(parsed['description']).toBeDefined();
+    expect(parsed['inputSchema']).toBeDefined();
+    expect(parsed['annotations']).toBeDefined();
+    expect(parsed['annotations']['readOnlyHint']).toBe(true);
+    expect(parsed['annotations']['destructiveHint']).toBe(false);
+  });
+
+  it('exports with openai profile and returns function tool shape', () => {
+    const mod = createModule('openai.mod');
+    const registry = makeRegistry(['openai.mod', mod]);
+
+    const result = exportSchema(registry, 'openai.mod', 'json', false, false, 'openai');
+    const parsed = JSON.parse(result);
+    expect(parsed['type']).toBe('function');
+    expect(parsed['function']).toBeDefined();
+    expect(parsed['function']['name']).toBe('openai_mod');
+    expect(parsed['function']['description']).toBeDefined();
+    expect(parsed['function']['parameters']).toBeDefined();
+    expect(parsed['function']['strict']).toBe(true);
+  });
+
+  it('exports with anthropic profile and returns tool shape with input_examples', () => {
+    const mod = createModule('anthro.mod');
+    const registry = makeRegistry(['anthro.mod', mod]);
+
+    const result = exportSchema(registry, 'anthro.mod', 'json', false, false, 'anthropic');
+    const parsed = JSON.parse(result);
+    expect(parsed['name']).toBe('anthro_mod');
+    expect(parsed['description']).toBeDefined();
+    expect(parsed['input_schema']).toBeDefined();
+    expect(parsed['input_examples']).toBeDefined();
+    expect((parsed['input_examples'] as unknown[]).length).toBe(1);
+  });
+
+  it('exports with generic profile and returns module_id and schema fields', () => {
+    const mod = createModule('generic.mod');
+    const registry = makeRegistry(['generic.mod', mod]);
+
+    const result = exportSchema(registry, 'generic.mod', 'json', false, false, 'generic');
+    const parsed = JSON.parse(result);
+    expect(parsed['module_id']).toBe('generic.mod');
+    expect(parsed['description']).toBeDefined();
+    expect(parsed['input_schema']).toBeDefined();
+    expect(parsed['output_schema']).toBeDefined();
+    expect(parsed['definitions']).toBeDefined();
+  });
+
+  it('exports with profile using yaml format', () => {
+    const mod = createModule('mcp.yaml');
+    const registry = makeRegistry(['mcp.yaml', mod]);
+
+    const result = exportSchema(registry, 'mcp.yaml', 'yaml', false, false, 'mcp');
+    expect(result).toContain('name:');
+    expect(result).toContain('inputSchema:');
+  });
+
+  it('throws InvalidInputError for an unrecognized profile name', () => {
+    const mod = createModule('bad.profile');
+    const registry = makeRegistry(['bad.profile', mod]);
+
+    expect(() =>
+      exportSchema(registry, 'bad.profile', 'json', false, false, 'not_a_real_profile'),
+    ).toThrow(InvalidInputError);
+  });
+
+  it('includes the invalid profile name in the error message', () => {
+    const mod = createModule('err.profile');
+    const registry = makeRegistry(['err.profile', mod]);
+
+    expect(() =>
+      exportSchema(registry, 'err.profile', 'json', false, false, 'bogus'),
+    ).toThrowError(/bogus/);
+  });
+});
+
+describe('truncateDescription edge cases', () => {
+  it('returns the full string when there is no dot-space or newline', () => {
+    const mod = createModule('no.boundary', {
+      description: 'A simple description with no sentence boundary',
+    });
+    const registry = makeRegistry(['no.boundary', mod]);
+
+    const result = exportSchema(registry, 'no.boundary', 'json', false, true);
+    const parsed = JSON.parse(result);
+    expect(parsed['description']).toBe('A simple description with no sentence boundary');
+  });
+
+  it('truncates at the earlier boundary when both dot-space and newline are present', () => {
+    // newline comes before dot-space: "Line one\nSecond sentence. More text."
+    const mod = createModule('newline.first', {
+      description: 'Line one\nSecond sentence. More text.',
+    });
+    const registry = makeRegistry(['newline.first', mod]);
+
+    const result = exportSchema(registry, 'newline.first', 'json', false, true);
+    const parsed = JSON.parse(result);
+    expect(parsed['description']).toBe('Line one');
+  });
+
+  it('truncates at dot-space when it comes before a newline', () => {
+    // dot-space before newline: "First sentence. Second line\nThird."
+    const mod = createModule('dotspace.first', {
+      description: 'First sentence. Second line\nThird.',
+    });
+    const registry = makeRegistry(['dotspace.first', mod]);
+
+    const result = exportSchema(registry, 'dotspace.first', 'json', false, true);
+    const parsed = JSON.parse(result);
+    expect(parsed['description']).toBe('First sentence.');
   });
 });

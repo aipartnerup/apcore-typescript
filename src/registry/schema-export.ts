@@ -3,9 +3,9 @@
  */
 
 import type { TSchema } from '@sinclair/typebox';
-import json from 'js-yaml';
+import yaml from 'js-yaml';
 import type { ModuleAnnotations, ModuleExample } from '../module.js';
-import { ModuleNotFoundError } from '../errors.js';
+import { InvalidInputError, ModuleNotFoundError } from '../errors.js';
 import { deepCopy } from '../utils/index.js';
 import { SchemaExporter } from '../schema/exporter.js';
 import { stripExtensions, toStrictSchema } from '../schema/strict.js';
@@ -129,6 +129,13 @@ function exportWithProfile(
   const examples = module ? ((module as Record<string, unknown>)['examples'] as ModuleExample[]) ?? [] : [];
   const name = module ? (module as Record<string, unknown>)['name'] as string | undefined : undefined;
 
+  const validProfiles = new Set(Object.values(ExportProfile));
+  if (!validProfiles.has(profile as ExportProfile)) {
+    throw new InvalidInputError(
+      `Invalid export profile: '${profile}'. Must be one of: ${[...validProfiles].join(', ')}`,
+    );
+  }
+
   const exported = new SchemaExporter().export(
     schemaDef,
     profile as ExportProfile,
@@ -168,7 +175,7 @@ function truncateDescription(description: string): string {
 
 function serialize(data: unknown, format: string): string {
   if (format === 'yaml') {
-    return json.dump(data, { flowLevel: -1 });
+    return yaml.dump(data, { flowLevel: -1 });
   }
   return JSON.stringify(data, null, 2);
 }

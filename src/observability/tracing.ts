@@ -58,10 +58,11 @@ export class InMemoryExporter implements SpanExporter {
   }
 
   export(span: Span): void {
-    this._spans.push(span);
-    while (this._spans.length > this._maxSpans) {
-      this._spans.shift();
+    if (this._spans.length >= this._maxSpans) {
+      // Drop oldest half to amortize the cost instead of O(n) shift per insert
+      this._spans = this._spans.slice(Math.floor(this._maxSpans / 2));
     }
+    this._spans.push(span);
   }
 
   getSpans(): Span[] {

@@ -111,11 +111,13 @@ export class SchemaLoader {
     const cached = this._modelCache.get(moduleId);
     if (cached) return cached;
 
-    const strategy = SchemaStrategy[
-      (this._config.get('schema.strategy', 'yaml_first') as string)
-        .replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
-        .replace(/^./, (c) => c.toUpperCase()) as keyof typeof SchemaStrategy
-    ] ?? SchemaStrategy.YamlFirst;
+    const strategyMap: Record<string, SchemaStrategy> = {
+      yaml_first: SchemaStrategy.YamlFirst,
+      native_first: SchemaStrategy.NativeFirst,
+      yaml_only: SchemaStrategy.YamlOnly,
+    };
+    const rawStrategy = this._config.get('schema.strategy', 'yaml_first') as string;
+    const strategy = strategyMap[rawStrategy] ?? SchemaStrategy.YamlFirst;
 
     let result: [ResolvedSchema, ResolvedSchema] | null = null;
 
@@ -191,15 +193,21 @@ export class SchemaLoader {
 export function jsonSchemaToTypeBox(schema: Record<string, unknown>): TSchema {
   const schemaType = schema['type'] as string | undefined;
 
-  if (schemaType === 'object') return convertObjectSchema(schema);
-  if (schemaType === 'array') return convertArraySchema(schema);
-  if (schemaType === 'string') return convertStringSchema(schema);
-  if (schemaType === 'integer') return convertNumericSchema(schema, Type.Integer);
-  if (schemaType === 'number') return convertNumericSchema(schema, Type.Number);
-  if (schemaType === 'boolean') return Type.Boolean();
-  if (schemaType === 'null') return Type.Null();
+  let result: TSchema;
+  if (schemaType === 'object') result = convertObjectSchema(schema);
+  else if (schemaType === 'array') result = convertArraySchema(schema);
+  else if (schemaType === 'string') result = convertStringSchema(schema);
+  else if (schemaType === 'integer') result = convertNumericSchema(schema, Type.Integer);
+  else if (schemaType === 'number') result = convertNumericSchema(schema, Type.Number);
+  else if (schemaType === 'boolean') result = Type.Boolean();
+  else if (schemaType === 'null') result = Type.Null();
+  else result = convertCombinatorSchema(schema);
 
-  return convertCombinatorSchema(schema);
+  // Preserve JSON Schema metadata
+  if (typeof schema['description'] === 'string') result['description'] = schema['description'];
+  if (typeof schema['title'] === 'string') result['title'] = schema['title'];
+
+  return result;
 }
 
 function convertObjectSchema(schema: Record<string, unknown>): TSchema {
@@ -244,7 +252,13 @@ function convertNumericSchema(
 function convertCombinatorSchema(schema: Record<string, unknown>): TSchema {
   if ('enum' in schema) {
     const values = schema['enum'] as unknown[];
-    return Type.Union(values.map((v) => Type.Literal(v as string | number | boolean)));
+    return Type.Union(values.map((v) =>
+      v === null ? Type.Null() : Type.Literal(v as string | number | boolean),
+    ));
+  }
+  if ('const' in schema) {
+    const value = schema['const'];
+    return value === null ? Type.Null() : Type.Literal(value as string | number | boolean);
   }
   if ('oneOf' in schema) {
     return Type.Union((schema['oneOf'] as Record<string, unknown>[]).map(jsonSchemaToTypeBox));

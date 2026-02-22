@@ -103,6 +103,202 @@ describe('applyLlmDescriptions', () => {
   });
 });
 
+describe('toStrictSchema - definitions and combinators', () => {
+  it('recurses into definitions block', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+      },
+      required: ['name'],
+      definitions: {
+        Address: {
+          type: 'object',
+          properties: {
+            city: { type: 'string' },
+            zip: { type: 'string' },
+          },
+          required: ['city'],
+        },
+      },
+    };
+    const strict = toStrictSchema(schema);
+    const defs = strict['definitions'] as Record<string, Record<string, unknown>>;
+    expect(defs['Address']['additionalProperties']).toBe(false);
+    const addrProps = defs['Address']['properties'] as Record<string, Record<string, unknown>>;
+    expect(addrProps['zip']['type']).toEqual(['string', 'null']);
+  });
+
+  it('recurses into $defs block', () => {
+    const schema = {
+      type: 'object',
+      properties: { x: { type: 'string' } },
+      $defs: {
+        Inner: {
+          type: 'object',
+          properties: {
+            a: { type: 'integer' },
+            b: { type: 'string' },
+          },
+          required: ['a'],
+        },
+      },
+    };
+    const strict = toStrictSchema(schema);
+    const defs = strict['$defs'] as Record<string, Record<string, unknown>>;
+    expect(defs['Inner']['additionalProperties']).toBe(false);
+    const innerProps = defs['Inner']['properties'] as Record<string, Record<string, unknown>>;
+    expect(innerProps['b']['type']).toEqual(['string', 'null']);
+  });
+
+  it('recurses into oneOf/anyOf/allOf variants', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        value: {
+          oneOf: [
+            {
+              type: 'object',
+              properties: { a: { type: 'string' } },
+            },
+          ],
+        },
+      },
+    };
+    const strict = toStrictSchema(schema);
+    const props = strict['properties'] as Record<string, Record<string, unknown>>;
+    const oneOf = props['value']['oneOf'] as Record<string, unknown>[];
+    expect(oneOf[0]['additionalProperties']).toBe(false);
+  });
+
+  it('appends null to existing oneOf for optional property', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        value: {
+          oneOf: [
+            { type: 'string' },
+            { type: 'number' },
+          ],
+        },
+      },
+      required: [],
+    };
+    const strict = toStrictSchema(schema);
+    const props = strict['properties'] as Record<string, Record<string, unknown>>;
+    const oneOf = props['value']['oneOf'] as Record<string, unknown>[];
+    expect(oneOf).toHaveLength(3);
+    expect(oneOf[2]).toEqual({ type: 'null' });
+  });
+
+  it('appends null to existing anyOf for optional property', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        value: {
+          anyOf: [
+            { type: 'string' },
+            { type: 'integer' },
+          ],
+        },
+      },
+      required: [],
+    };
+    const strict = toStrictSchema(schema);
+    const props = strict['properties'] as Record<string, Record<string, unknown>>;
+    const anyOf = props['value']['anyOf'] as Record<string, unknown>[];
+    expect(anyOf).toHaveLength(3);
+    expect(anyOf[2]).toEqual({ type: 'null' });
+  });
+
+  it('does not double-add null to oneOf that already has null', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        value: {
+          oneOf: [
+            { type: 'string' },
+            { type: 'null' },
+          ],
+        },
+      },
+      required: [],
+    };
+    const strict = toStrictSchema(schema);
+    const props = strict['properties'] as Record<string, Record<string, unknown>>;
+    const oneOf = props['value']['oneOf'] as Record<string, unknown>[];
+    expect(oneOf).toHaveLength(2);
+  });
+
+  it('does not add null to already-nullable type array', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        value: { type: ['string', 'null'] },
+      },
+      required: [],
+    };
+    const strict = toStrictSchema(schema);
+    const props = strict['properties'] as Record<string, Record<string, unknown>>;
+    expect(props['value']['type']).toEqual(['string', 'null']);
+  });
+});
+
+describe('applyLlmDescriptions - definitions and combinators', () => {
+  it('recurses into definitions block', () => {
+    const schema: Record<string, unknown> = {
+      definitions: {
+        Foo: { description: 'old', 'x-llm-description': 'new' },
+      },
+    };
+    applyLlmDescriptions(schema);
+    const defs = schema['definitions'] as Record<string, Record<string, unknown>>;
+    expect(defs['Foo']['description']).toBe('new');
+  });
+
+  it('recurses into $defs block', () => {
+    const schema: Record<string, unknown> = {
+      $defs: {
+        Bar: { description: 'old', 'x-llm-description': 'updated' },
+      },
+    };
+    applyLlmDescriptions(schema);
+    const defs = schema['$defs'] as Record<string, Record<string, unknown>>;
+    expect(defs['Bar']['description']).toBe('updated');
+  });
+
+  it('recurses into items', () => {
+    const schema: Record<string, unknown> = {
+      type: 'array',
+      items: { 'x-llm-description': 'item desc' },
+    };
+    applyLlmDescriptions(schema);
+    const items = schema['items'] as Record<string, unknown>;
+    expect(items['description']).toBe('item desc');
+  });
+
+  it('recurses into oneOf/anyOf/allOf', () => {
+    const schema: Record<string, unknown> = {
+      oneOf: [
+        { 'x-llm-description': 'variant A' },
+        { 'x-llm-description': 'variant B' },
+      ],
+    };
+    applyLlmDescriptions(schema);
+    const oneOf = schema['oneOf'] as Record<string, unknown>[];
+    expect(oneOf[0]['description']).toBe('variant A');
+    expect(oneOf[1]['description']).toBe('variant B');
+  });
+
+  it('sets description even when no prior description exists', () => {
+    const schema: Record<string, unknown> = {
+      'x-llm-description': 'brand new',
+    };
+    applyLlmDescriptions(schema);
+    expect(schema['description']).toBe('brand new');
+  });
+});
+
 describe('stripExtensions', () => {
   it('removes x- prefixed keys', () => {
     const schema: Record<string, unknown> = {
@@ -135,5 +331,18 @@ describe('stripExtensions', () => {
     stripExtensions(schema);
     const props = schema['properties'] as Record<string, Record<string, unknown>>;
     expect(props['name']['x-sensitive']).toBeUndefined();
+  });
+
+  it('recurses into arrays', () => {
+    const schema: Record<string, unknown> = {
+      oneOf: [
+        { type: 'string', 'x-remove': true },
+        { type: 'number', default: 0 },
+      ],
+    };
+    stripExtensions(schema);
+    const oneOf = schema['oneOf'] as Record<string, unknown>[];
+    expect(oneOf[0]['x-remove']).toBeUndefined();
+    expect(oneOf[1]['default']).toBeUndefined();
   });
 });

@@ -2,7 +2,7 @@
  * Directory scanner for discovering TypeScript/JavaScript extension modules.
  */
 
-import { readdirSync, statSync, realpathSync } from 'node:fs';
+import { readdirSync, statSync, lstatSync, realpathSync } from 'node:fs';
 import { resolve, relative, join, extname, basename, sep } from 'node:path';
 import { ConfigError, ConfigNotFoundError } from '../errors.js';
 import type { DiscoveredModule } from './types.js';
@@ -53,23 +53,41 @@ export function scanExtensions(
       if (SKIP_DIR_NAMES.has(name)) continue;
 
       const entryPath = join(dirPath, name);
-      let stat;
+      let lstat;
       try {
-        stat = statSync(entryPath);
+        lstat = lstatSync(entryPath);
       } catch {
         console.warn(`[apcore:scanner] Cannot stat entry: ${entryPath}`);
         continue;
       }
 
-      if (stat.isDirectory()) {
-        if (stat.isSymbolicLink()) {
-          if (!followSymlinks) continue;
-          const real = realpathSync(entryPath);
-          if (visitedRealPaths.has(real)) continue;
-          visitedRealPaths.add(real);
+      const isSymlink = lstat.isSymbolicLink();
+      let isDir: boolean;
+      let isFile: boolean;
+
+      if (isSymlink) {
+        if (!followSymlinks) continue;
+        const real = realpathSync(entryPath);
+        if (visitedRealPaths.has(real)) continue;
+        visitedRealPaths.add(real);
+        // Resolve the symlink target to check if it's a dir or file
+        let targetStat;
+        try {
+          targetStat = statSync(entryPath);
+        } catch {
+          console.warn(`[apcore:scanner] Cannot resolve symlink target: ${entryPath}`);
+          continue;
         }
+        isDir = targetStat.isDirectory();
+        isFile = targetStat.isFile();
+      } else {
+        isDir = lstat.isDirectory();
+        isFile = lstat.isFile();
+      }
+
+      if (isDir) {
         scanDir(entryPath, depth + 1);
-      } else if (stat.isFile()) {
+      } else if (isFile) {
         const ext = extname(name);
         if (!VALID_EXTENSIONS.has(ext)) continue;
         if (SKIP_SUFFIXES.some((s) => name.endsWith(s))) continue;

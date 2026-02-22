@@ -186,7 +186,8 @@ export class MetricsMiddleware extends Middleware {
     _output: Record<string, unknown>,
     context: Context,
   ): null {
-    const starts = context.data['_metrics_starts'] as number[];
+    const starts = context.data['_metrics_starts'] as number[] | undefined;
+    if (!starts || starts.length === 0) return null;
     const startTime = starts.pop()!;
     const durationS = (performance.now() - startTime) / 1000;
     this._collector.incrementCalls(moduleId, 'success');
@@ -200,7 +201,8 @@ export class MetricsMiddleware extends Middleware {
     error: Error,
     context: Context,
   ): null {
-    const starts = context.data['_metrics_starts'] as number[];
+    const starts = context.data['_metrics_starts'] as number[] | undefined;
+    if (!starts || starts.length === 0) return null;
     const startTime = starts.pop()!;
     const durationS = (performance.now() - startTime) / 1000;
     const errorCode = error instanceof ModuleError ? error.code : error.constructor.name;

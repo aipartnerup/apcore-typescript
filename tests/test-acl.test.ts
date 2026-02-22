@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { ACL } from '../src/acl.js';
+import { ACLRuleError, ConfigNotFoundError } from '../src/errors.js';
 import { Context, createIdentity } from '../src/context.js';
 
 function makeContext(opts: {
@@ -202,5 +206,218 @@ describe('ACL', () => {
   it('removeRule returns false when no match', () => {
     const acl = new ACL([]);
     expect(acl.removeRule(['x'], ['y'])).toBe(false);
+  });
+});
+
+describe('ACL.load', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'acl-test-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('loads valid ACL from a YAML file', () => {
+    const yamlContent = `
+rules:
+  - callers: ["module.a"]
+    targets: ["module.b"]
+    effect: allow
+    description: "allow a to b"
+`;
+    const filePath = join(tmpDir, 'acl.yaml');
+    writeFileSync(filePath, yamlContent, 'utf-8');
+
+    const acl = ACL.load(filePath);
+    expect(acl.check('module.a', 'module.b')).toBe(true);
+    expect(acl.check('module.x', 'module.y')).toBe(false);
+  });
+
+  it('loads ACL with custom default_effect from YAML', () => {
+    const yamlContent = `
+default_effect: allow
+rules: []
+`;
+    const filePath = join(tmpDir, 'acl.yaml');
+    writeFileSync(filePath, yamlContent, 'utf-8');
+
+    const acl = ACL.load(filePath);
+    expect(acl.check('any.caller', 'any.target')).toBe(true);
+  });
+
+  it('throws ConfigNotFoundError for missing file', () => {
+    const missingPath = join(tmpDir, 'nonexistent.yaml');
+    expect(() => ACL.load(missingPath)).toThrow(ConfigNotFoundError);
+  });
+
+  it('throws ACLRuleError for invalid YAML syntax', () => {
+    const filePath = join(tmpDir, 'bad.yaml');
+    writeFileSync(filePath, ':\n  :\n    - [invalid', 'utf-8');
+
+    expect(() => ACL.load(filePath)).toThrow(ACLRuleError);
+  });
+
+  it('throws ACLRuleError when YAML is not a mapping', () => {
+    const filePath = join(tmpDir, 'array.yaml');
+    writeFileSync(filePath, '- item1\n- item2\n', 'utf-8');
+
+    expect(() => ACL.load(filePath)).toThrow(ACLRuleError);
+    expect(() => ACL.load(filePath)).toThrow(/must be a mapping/);
+  });
+
+  it('throws ACLRuleError when YAML is a scalar', () => {
+    const filePath = join(tmpDir, 'scalar.yaml');
+    writeFileSync(filePath, 'just a string\n', 'utf-8');
+
+    expect(() => ACL.load(filePath)).toThrow(ACLRuleError);
+    expect(() => ACL.load(filePath)).toThrow(/must be a mapping/);
+  });
+
+  it('throws ACLRuleError when rules key is missing', () => {
+    const filePath = join(tmpDir, 'norules.yaml');
+    writeFileSync(filePath, 'default_effect: allow\n', 'utf-8');
+
+    expect(() => ACL.load(filePath)).toThrow(ACLRuleError);
+    expect(() => ACL.load(filePath)).toThrow(/missing required 'rules' key/);
+  });
+
+  it('throws ACLRuleError when rules is not an array', () => {
+    const filePath = join(tmpDir, 'badrules.yaml');
+    writeFileSync(filePath, 'rules: "not-a-list"\n', 'utf-8');
+
+    expect(() => ACL.load(filePath)).toThrow(ACLRuleError);
+    expect(() => ACL.load(filePath)).toThrow(/'rules' must be a list/);
+  });
+
+  it('loads ACL with multiple rules and conditions', () => {
+    const yamlContent = `
+rules:
+  - callers: ["*"]
+    targets: ["admin.panel"]
+    effect: allow
+    description: "admin access"
+    conditions:
+      roles: ["admin"]
+  - callers: ["*"]
+    targets: ["*"]
+    effect: deny
+    description: "deny all"
+`;
+    const filePath = join(tmpDir, 'multi.yaml');
+    writeFileSync(filePath, yamlContent, 'utf-8');
+
+    const acl = ACL.load(filePath);
+    const adminCtx = makeContext({ identityType: 'user', roles: ['admin'] });
+    const userCtx = makeContext({ identityType: 'user', roles: ['viewer'] });
+
+    expect(acl.check('mod.a', 'admin.panel', adminCtx)).toBe(true);
+    expect(acl.check('mod.a', 'admin.panel', userCtx)).toBe(false);
+  });
+});
+
+describe('ACL.reload', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'acl-reload-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('reloads updated rules from the same YAML file', () => {
+    const filePath = join(tmpDir, 'acl.yaml');
+    writeFileSync(filePath, `
+rules:
+  - callers: ["module.a"]
+    targets: ["module.b"]
+    effect: deny
+    description: "initial deny"
+`, 'utf-8');
+
+    const acl = ACL.load(filePath);
+    expect(acl.check('module.a', 'module.b')).toBe(false);
+
+    writeFileSync(filePath, `
+rules:
+  - callers: ["module.a"]
+    targets: ["module.b"]
+    effect: allow
+    description: "updated allow"
+`, 'utf-8');
+
+    acl.reload();
+    expect(acl.check('module.a', 'module.b')).toBe(true);
+  });
+
+  it('throws ACLRuleError when ACL was not loaded from a file', () => {
+    const acl = new ACL([
+      { callers: ['*'], targets: ['*'], effect: 'allow', description: '' },
+    ]);
+
+    expect(() => acl.reload()).toThrow(ACLRuleError);
+    expect(() => acl.reload()).toThrow(/Cannot reload/);
+  });
+});
+
+describe('ACL constructor validation', () => {
+  it('throws ACLRuleError for invalid defaultEffect', () => {
+    expect(() => new ACL([], 'block')).toThrow(ACLRuleError);
+    expect(() => new ACL([], 'block')).toThrow(/Invalid default_effect/);
+  });
+
+  it('throws ACLRuleError for empty string defaultEffect', () => {
+    expect(() => new ACL([], '')).toThrow(ACLRuleError);
+  });
+});
+
+describe('ACL condition validation', () => {
+  it('returns false when identity_types condition is not an array', () => {
+    const acl = new ACL([{
+      callers: ['*'], targets: ['target'], effect: 'allow', description: '',
+      conditions: { identity_types: 'admin' },
+    }]);
+    const ctx = makeContext({ identityType: 'admin' });
+    expect(acl.check('mod.a', 'target', ctx)).toBe(false);
+  });
+
+  it('returns false when roles condition is not an array', () => {
+    const acl = new ACL([{
+      callers: ['*'], targets: ['target'], effect: 'allow', description: '',
+      conditions: { roles: 'admin' },
+    }]);
+    const ctx = makeContext({ identityType: 'user', roles: ['admin'] });
+    expect(acl.check('mod.a', 'target', ctx)).toBe(false);
+  });
+
+  it('returns false when max_call_depth condition is not a number', () => {
+    const acl = new ACL([{
+      callers: ['*'], targets: ['target'], effect: 'allow', description: '',
+      conditions: { max_call_depth: '5' },
+    }]);
+    const ctx = makeContext({ callChain: ['a'] });
+    expect(acl.check('mod.a', 'target', ctx)).toBe(false);
+  });
+
+  it('returns false for roles condition when identity is null', () => {
+    const acl = new ACL([{
+      callers: ['*'], targets: ['target'], effect: 'allow', description: '',
+      conditions: { roles: ['admin'] },
+    }]);
+    const ctx = makeContext({});
+    expect(acl.check('mod.a', 'target', ctx)).toBe(false);
+  });
+
+  it('returns false for identity_types condition when identity is null', () => {
+    const acl = new ACL([{
+      callers: ['*'], targets: ['target'], effect: 'allow', description: '',
+      conditions: { identity_types: ['admin'] },
+    }]);
+    const ctx = makeContext({});
+    expect(acl.check('mod.a', 'target', ctx)).toBe(false);
   });
 });

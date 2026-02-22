@@ -5,7 +5,7 @@
 export class ModuleError extends Error {
   readonly code: string;
   readonly details: Record<string, unknown>;
-  readonly cause?: Error;
+  override readonly cause?: Error;
   readonly traceId?: string;
   readonly timestamp: string;
 
@@ -16,7 +16,7 @@ export class ModuleError extends Error {
     cause?: Error,
     traceId?: string,
   ) {
-    super(message);
+    super(message, cause ? { cause } : undefined);
     this.name = 'ModuleError';
     this.code = code;
     this.details = details ?? {};
@@ -419,6 +419,7 @@ export const ErrorCodes = Object.freeze({
   BINDING_SCHEMA_MISSING: "BINDING_SCHEMA_MISSING",
   BINDING_FILE_INVALID: "BINDING_FILE_INVALID",
   CIRCULAR_DEPENDENCY: "CIRCULAR_DEPENDENCY",
+  MIDDLEWARE_CHAIN_ERROR: "MIDDLEWARE_CHAIN_ERROR",
 } as const);
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

@@ -38,7 +38,7 @@ export class Context {
   ) {
     this.traceId = traceId;
     this.callerId = callerId;
-    this.callChain = callChain;
+    this.callChain = Object.freeze([...callChain]);
     this.executor = executor;
     this.identity = identity;
     this.redactedInputs = redactedInputs;

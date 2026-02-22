@@ -106,6 +106,12 @@ export class BindingLoader {
       );
     }
 
+    if (modulePath.startsWith('file:')) {
+      throw new BindingInvalidTargetError(
+        `Module path '${modulePath}' must not use file: URLs`,
+      );
+    }
+
     let mod: Record<string, unknown>;
     try {
       mod = await import(modulePath);

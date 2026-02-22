@@ -59,6 +59,9 @@ export class ACL {
   debug: boolean = false;
 
   constructor(rules: ACLRule[], defaultEffect: string = 'deny') {
+    if (defaultEffect !== 'allow' && defaultEffect !== 'deny') {
+      throw new ACLRuleError(`Invalid default_effect '${defaultEffect}', must be 'allow' or 'deny'`);
+    }
     this._rules = [...rules];
     this._defaultEffect = defaultEffect;
   }
@@ -101,16 +104,14 @@ export class ACL {
 
   check(callerId: string | null, targetId: string, context?: Context | null): boolean {
     const effectiveCaller = callerId === null ? '@external' : callerId;
-    const rules = [...this._rules];
-    const defaultEffect = this._defaultEffect;
 
-    for (const rule of rules) {
+    for (const rule of this._rules) {
       if (this._matchesRule(rule, effectiveCaller, targetId, context ?? null)) {
         return rule.effect === 'allow';
       }
     }
 
-    return defaultEffect === 'allow';
+    return this._defaultEffect === 'allow';
   }
 
   private _matchPattern(pattern: string, value: string, context: Context | null): boolean {
@@ -139,19 +140,31 @@ export class ACL {
     if (context === null) return false;
 
     if ('identity_types' in conditions) {
-      const types = conditions['identity_types'] as string[];
+      const types = conditions['identity_types'];
+      if (!Array.isArray(types)) {
+        console.warn('[apcore:acl] identity_types condition must be an array');
+        return false;
+      }
       if (context.identity === null || !types.includes(context.identity.type)) return false;
     }
 
     if ('roles' in conditions) {
-      const roles = conditions['roles'] as string[];
+      const roles = conditions['roles'];
+      if (!Array.isArray(roles)) {
+        console.warn('[apcore:acl] roles condition must be an array');
+        return false;
+      }
       if (context.identity === null) return false;
       const identityRoles = new Set(context.identity.roles);
-      if (!roles.some((r) => identityRoles.has(r))) return false;
+      if (!roles.some((r: string) => identityRoles.has(r))) return false;
     }
 
     if ('max_call_depth' in conditions) {
-      const maxDepth = conditions['max_call_depth'] as number;
+      const maxDepth = conditions['max_call_depth'];
+      if (typeof maxDepth !== 'number') {
+        console.warn('[apcore:acl] max_call_depth condition must be a number');
+        return false;
+      }
       if (context.callChain.length > maxDepth) return false;
     }
 

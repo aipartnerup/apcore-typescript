@@ -82,4 +82,4 @@ export type { Span, SpanExporter } from './observability/tracing.js';
 export { MetricsCollector, MetricsMiddleware } from './observability/metrics.js';
 export { ContextLogger, ObsLoggingMiddleware } from './observability/context-logger.js';
 
-export const VERSION = '0.1.2';
+export const VERSION = '0.3.0';

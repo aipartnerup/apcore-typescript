@@ -1,8 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { Type } from '@sinclair/typebox';
 import { Registry } from '../../src/registry/registry.js';
 import { FunctionModule } from '../../src/decorator.js';
 import { InvalidInputError, ModuleNotFoundError } from '../../src/errors.js';
+import { Config } from '../../src/config.js';
 
 function createMod(id: string): FunctionModule {
   return new FunctionModule({
@@ -136,5 +140,869 @@ describe('Registry', () => {
   it('clearCache does not throw', () => {
     const registry = new Registry();
     registry.clearCache();
+  });
+});
+
+/* -----------------------------------------------------------
+ * Integration tests for Registry.discover() and related APIs
+ * --------------------------------------------------------- */
+
+/**
+ * Helper: write a valid ESM module file (.js) that the scanner and
+ * entry-point resolver can dynamically import.
+ */
+function writeModuleFile(
+  dir: string,
+  filename: string,
+  content: string,
+): string {
+  const filePath = join(dir, filename);
+  writeFileSync(filePath, content, 'utf-8');
+  return filePath;
+}
+
+describe('Registry.discover()', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'apcore-registry-test-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('discovers valid .js module files and registers them', async () => {
+    writeModuleFile(
+      tempDir,
+      'greeter.js',
+      `export default {
+        execute: async (inputs) => ({ greeting: 'Hello ' + inputs.name }),
+        description: 'A greeter module',
+        inputSchema: { type: 'object', properties: { name: { type: 'string' } } },
+        outputSchema: { type: 'object', properties: { greeting: { type: 'string' } } },
+      };`,
+    );
+
+    const registry = new Registry({ extensionsDir: tempDir });
+    const count = await registry.discover();
+
+    expect(count).toBe(1);
+    expect(registry.has('greeter')).toBe(true);
+  });
+
+  it('discovers multiple modules in nested directories', async () => {
+    writeModuleFile(
+      tempDir,
+      'alpha.js',
+      `export default {
+        execute: async () => ({}),
+        description: 'Alpha module',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+    );
+
+    const subDir = join(tempDir, 'sub');
+    mkdirSync(subDir, { recursive: true });
+    writeModuleFile(
+      subDir,
+      'beta.js',
+      `export default {
+        execute: async () => ({}),
+        description: 'Beta module',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+    );
+
+    const registry = new Registry({ extensionsDir: tempDir });
+    const count = await registry.discover();
+
+    expect(count).toBe(2);
+    expect(registry.has('alpha')).toBe(true);
+    expect(registry.has('sub.beta')).toBe(true);
+  });
+
+  it('calls onLoad during discover when module exports onLoad', async () => {
+    writeModuleFile(
+      tempDir,
+      'withload.js',
+      `let loaded = false;
+      export default {
+        execute: async () => ({}),
+        description: 'Module with onLoad',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+        onLoad() { loaded = true; },
+        isLoaded() { return loaded; },
+      };`,
+    );
+
+    const registry = new Registry({ extensionsDir: tempDir });
+    const count = await registry.discover();
+
+    expect(count).toBe(1);
+    expect(registry.has('withload')).toBe(true);
+
+    const mod = registry.get('withload') as Record<string, unknown>;
+    const isLoaded = (mod['isLoaded'] as () => boolean)();
+    expect(isLoaded).toBe(true);
+  });
+
+  it('skips modules that fail validation (no execute method)', async () => {
+    writeModuleFile(
+      tempDir,
+      'valid.js',
+      `export default {
+        execute: async () => ({}),
+        description: 'Valid module',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+    );
+
+    // Invalid module: no default export that passes isModuleClass
+    writeModuleFile(
+      tempDir,
+      'invalid.js',
+      `export const someData = 42;
+      export const description = 'Invalid module - no execute';`,
+    );
+
+    const registry = new Registry({ extensionsDir: tempDir });
+    const count = await registry.discover();
+
+    expect(count).toBe(1);
+    expect(registry.has('valid')).toBe(true);
+    expect(registry.has('invalid')).toBe(false);
+  });
+
+  it('merges companion _meta.yaml metadata into discovered module', async () => {
+    writeModuleFile(
+      tempDir,
+      'tagged.js',
+      `export default {
+        execute: async () => ({}),
+        description: 'Tagged module from code',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+    );
+
+    writeFileSync(
+      join(tempDir, 'tagged_meta.yaml'),
+      [
+        'description: "Overridden description from YAML"',
+        'version: "2.0.0"',
+        'tags:',
+        '  - yaml_tag',
+        '  - production',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const registry = new Registry({ extensionsDir: tempDir });
+    const count = await registry.discover();
+
+    expect(count).toBe(1);
+    expect(registry.has('tagged')).toBe(true);
+
+    const def = registry.getDefinition('tagged');
+    expect(def).not.toBeNull();
+    expect(def!.description).toBe('Overridden description from YAML');
+    expect(def!.version).toBe('2.0.0');
+    expect(def!.tags).toEqual(['yaml_tag', 'production']);
+  });
+
+  it('returns 0 when extensions directory contains no valid modules', async () => {
+    // Write a file that is not a module (plain text)
+    writeFileSync(join(tempDir, 'readme.txt'), 'Not a module', 'utf-8');
+
+    const registry = new Registry({ extensionsDir: tempDir });
+    const count = await registry.discover();
+
+    expect(count).toBe(0);
+    expect(registry.count).toBe(0);
+  });
+});
+
+describe('Registry.getDefinition() with discover', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'apcore-registry-def-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('returns full ModuleDescriptor for a discovered module', async () => {
+    writeModuleFile(
+      tempDir,
+      'detailed.js',
+      `export default {
+        execute: async (inputs) => ({ result: inputs.x * 2 }),
+        description: 'A detailed test module',
+        version: '3.5.0',
+        tags: ['math', 'utility'],
+        inputSchema: { type: 'object', properties: { x: { type: 'number' } } },
+        outputSchema: { type: 'object', properties: { result: { type: 'number' } } },
+      };`,
+    );
+
+    const registry = new Registry({ extensionsDir: tempDir });
+    await registry.discover();
+
+    const def = registry.getDefinition('detailed');
+    expect(def).not.toBeNull();
+    expect(def!.moduleId).toBe('detailed');
+    expect(def!.description).toBe('A detailed test module');
+    expect(def!.version).toBe('3.5.0');
+    expect(def!.tags).toEqual(['math', 'utility']);
+    expect(def!.inputSchema).toEqual({
+      type: 'object',
+      properties: { x: { type: 'number' } },
+    });
+    expect(def!.outputSchema).toEqual({
+      type: 'object',
+      properties: { result: { type: 'number' } },
+    });
+  });
+
+  it('returns null for a module ID that was not discovered', async () => {
+    const registry = new Registry({ extensionsDir: tempDir });
+    await registry.discover();
+
+    expect(registry.getDefinition('nonexistent')).toBeNull();
+  });
+});
+
+describe('Registry.list() with tag filtering', () => {
+  it('filters modules by tags on registered plain objects', () => {
+    const registry = new Registry();
+
+    const modA = {
+      execute: async () => ({}),
+      description: 'Module A',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+      tags: ['web', 'api'],
+    };
+    const modB = {
+      execute: async () => ({}),
+      description: 'Module B',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+      tags: ['cli', 'api'],
+    };
+    const modC = {
+      execute: async () => ({}),
+      description: 'Module C',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+      tags: ['web'],
+    };
+
+    registry.register('mod.a', modA);
+    registry.register('mod.b', modB);
+    registry.register('mod.c', modC);
+
+    expect(registry.list({ tags: ['api'] })).toEqual(['mod.a', 'mod.b']);
+    expect(registry.list({ tags: ['web'] })).toEqual(['mod.a', 'mod.c']);
+    expect(registry.list({ tags: ['cli'] })).toEqual(['mod.b']);
+    expect(registry.list({ tags: ['web', 'api'] })).toEqual(['mod.a']);
+  });
+
+  it('returns empty array when no modules match the tag', () => {
+    const registry = new Registry();
+
+    const modA = {
+      execute: async () => ({}),
+      description: 'Module A',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+      tags: ['web'],
+    };
+    registry.register('mod.a', modA);
+
+    expect(registry.list({ tags: ['nonexistent'] })).toEqual([]);
+  });
+
+  it('combines tag and prefix filtering', () => {
+    const registry = new Registry();
+
+    const modA = {
+      execute: async () => ({}),
+      description: 'Module A',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+      tags: ['api'],
+    };
+    const modB = {
+      execute: async () => ({}),
+      description: 'Module B',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+      tags: ['api'],
+    };
+
+    registry.register('svc.alpha', modA);
+    registry.register('lib.beta', modB);
+
+    expect(registry.list({ prefix: 'svc.', tags: ['api'] })).toEqual(['svc.alpha']);
+    expect(registry.list({ prefix: 'lib.', tags: ['api'] })).toEqual(['lib.beta']);
+    expect(registry.list({ prefix: 'unknown.', tags: ['api'] })).toEqual([]);
+  });
+
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'apcore-registry-tags-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('filters discovered modules by tags from code exports', async () => {
+    writeModuleFile(
+      tempDir,
+      'svcone.js',
+      `export default {
+        execute: async () => ({}),
+        description: 'Service one',
+        tags: ['backend', 'grpc'],
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+    );
+
+    writeModuleFile(
+      tempDir,
+      'svctwo.js',
+      `export default {
+        execute: async () => ({}),
+        description: 'Service two',
+        tags: ['frontend', 'rest'],
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+    );
+
+    const registry = new Registry({ extensionsDir: tempDir });
+    await registry.discover();
+
+    expect(registry.list({ tags: ['backend'] })).toEqual(['svcone']);
+    expect(registry.list({ tags: ['frontend'] })).toEqual(['svctwo']);
+    expect(registry.list({ tags: ['grpc'] })).toEqual(['svcone']);
+    expect(registry.list({ tags: ['rest'] })).toEqual(['svctwo']);
+  });
+
+  it('filters discovered modules by tags from companion YAML metadata', async () => {
+    writeModuleFile(
+      tempDir,
+      'yamlmod.js',
+      `export default {
+        execute: async () => ({}),
+        description: 'YAML tagged module',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+    );
+
+    writeFileSync(
+      join(tempDir, 'yamlmod_meta.yaml'),
+      ['tags:', '  - infra', '  - deploy'].join('\n'),
+      'utf-8',
+    );
+
+    const registry = new Registry({ extensionsDir: tempDir });
+    await registry.discover();
+
+    expect(registry.list({ tags: ['infra'] })).toEqual(['yamlmod']);
+    expect(registry.list({ tags: ['deploy'] })).toEqual(['yamlmod']);
+    expect(registry.list({ tags: ['web'] })).toEqual([]);
+  });
+});
+
+/* -----------------------------------------------------------
+ * Constructor branch coverage
+ * --------------------------------------------------------- */
+
+describe('Registry constructor branches', () => {
+  it('accepts extensionsDirs with string entries', () => {
+    const registry = new Registry({ extensionsDirs: ['/tmp/ext-a', '/tmp/ext-b'] });
+    expect(registry.count).toBe(0);
+  });
+
+  it('accepts extensionsDirs with object entries', () => {
+    const registry = new Registry({
+      extensionsDirs: [{ root: '/tmp/ext-a', namespace: 'ns' }, '/tmp/ext-b'],
+    });
+    expect(registry.count).toBe(0);
+  });
+
+  it('throws when both extensionsDir and extensionsDirs are provided', () => {
+    expect(
+      () => new Registry({ extensionsDir: '/tmp/ext-a', extensionsDirs: ['/tmp/ext-b'] }),
+    ).toThrow(InvalidInputError);
+  });
+
+  it('uses extensions.root from config when no extensionsDir is provided', () => {
+    const config = new Config({ extensions: { root: '/tmp/from-config' } });
+    const registry = new Registry({ config });
+    expect(registry.count).toBe(0);
+  });
+
+  it('falls back to ./extensions when config has no extensions.root key', () => {
+    const config = new Config({});
+    const registry = new Registry({ config });
+    expect(registry.count).toBe(0);
+  });
+
+  it('falls back to ./extensions when no options are provided', () => {
+    const registry = new Registry();
+    expect(registry.count).toBe(0);
+  });
+});
+
+/* -----------------------------------------------------------
+ * register() with onLoad callback
+ * --------------------------------------------------------- */
+
+describe('Registry register() onLoad callback', () => {
+  it('calls onLoad when module has an onLoad function', () => {
+    const registry = new Registry();
+    let loaded = false;
+    const mod = {
+      execute: async () => ({}),
+      description: 'Module with onLoad',
+      inputSchema: Type.Object({}),
+      outputSchema: Type.Object({}),
+      onLoad() {
+        loaded = true;
+      },
+    };
+    registry.register('with.load', mod);
+    expect(loaded).toBe(true);
+    expect(registry.has('with.load')).toBe(true);
+  });
+
+  it('re-deletes module and re-throws when onLoad throws', () => {
+    const registry = new Registry();
+    const loadError = new Error('onLoad failed');
+    const mod = {
+      execute: async () => ({}),
+      description: 'Failing onLoad module',
+      inputSchema: Type.Object({}),
+      outputSchema: Type.Object({}),
+      onLoad() {
+        throw loadError;
+      },
+    };
+    expect(() => registry.register('bad.load', mod)).toThrow(loadError);
+    expect(registry.has('bad.load')).toBe(false);
+    expect(registry.count).toBe(0);
+  });
+});
+
+/* -----------------------------------------------------------
+ * unregister() with onUnload callback
+ * --------------------------------------------------------- */
+
+describe('Registry unregister() onUnload callback', () => {
+  it('calls onUnload when module has an onUnload function', () => {
+    const registry = new Registry();
+    let unloaded = false;
+    const mod = {
+      execute: async () => ({}),
+      description: 'Module with onUnload',
+      inputSchema: Type.Object({}),
+      outputSchema: Type.Object({}),
+      onUnload() {
+        unloaded = true;
+      },
+    };
+    registry.register('with.unload', mod);
+    const result = registry.unregister('with.unload');
+    expect(result).toBe(true);
+    expect(unloaded).toBe(true);
+    expect(registry.has('with.unload')).toBe(false);
+  });
+
+  it('still unregisters and warns when onUnload throws', () => {
+    const registry = new Registry();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const unloadError = new Error('onUnload failed');
+    const mod = {
+      execute: async () => ({}),
+      description: 'Module with failing onUnload',
+      inputSchema: Type.Object({}),
+      outputSchema: Type.Object({}),
+      onUnload() {
+        throw unloadError;
+      },
+    };
+    registry.register('bad.unload', mod);
+    const result = registry.unregister('bad.unload');
+    expect(result).toBe(true);
+    expect(registry.has('bad.unload')).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[apcore:registry]'),
+      unloadError,
+    );
+    warnSpy.mockRestore();
+  });
+});
+
+/* -----------------------------------------------------------
+ * _triggerEvent error handling
+ * --------------------------------------------------------- */
+
+describe('Registry _triggerEvent error handling', () => {
+  it('warns and continues when a registered event callback throws', () => {
+    const registry = new Registry();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const callbackError = new Error('callback exploded');
+
+    registry.on('register', () => {
+      throw callbackError;
+    });
+
+    // register should complete normally despite the callback throwing
+    expect(() => registry.register('trigger.test', createMod('trigger.test'))).not.toThrow();
+    expect(registry.has('trigger.test')).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[apcore:registry]'),
+      callbackError,
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('warns and continues for unregister event callbacks that throw', () => {
+    const registry = new Registry();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    registry.register('trigger.unreg', createMod('trigger.unreg'));
+
+    const callbackError = new Error('unregister callback exploded');
+    registry.on('unregister', () => {
+      throw callbackError;
+    });
+
+    const result = registry.unregister('trigger.unreg');
+    expect(result).toBe(true);
+    expect(registry.has('trigger.unreg')).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[apcore:registry]'),
+      callbackError,
+    );
+    warnSpy.mockRestore();
+  });
+});
+
+/* -----------------------------------------------------------
+ * list() with metaTags from _moduleMeta
+ * --------------------------------------------------------- */
+
+/* -----------------------------------------------------------
+ * register() invalid pattern (MODULE_ID_PATTERN check)
+ * --------------------------------------------------------- */
+
+describe('Registry register() invalid module ID pattern', () => {
+  it('throws InvalidInputError when moduleId contains a hyphen', () => {
+    const registry = new Registry();
+    expect(() => registry.register('bad-id', createMod('test.a'))).toThrow(InvalidInputError);
+  });
+
+  it('throws InvalidInputError when moduleId starts with a digit', () => {
+    const registry = new Registry();
+    expect(() => registry.register('1invalid', createMod('test.a'))).toThrow(InvalidInputError);
+  });
+
+  it('throws InvalidInputError when moduleId contains uppercase letters', () => {
+    const registry = new Registry();
+    expect(() => registry.register('Bad.Id', createMod('test.a'))).toThrow(InvalidInputError);
+  });
+});
+
+/* -----------------------------------------------------------
+ * discover() with config: _scanRoots uses config values
+ * --------------------------------------------------------- */
+
+describe('Registry discover() with Config', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'apcore-registry-config-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('uses extensions.root from config and reads max_depth and follow_symlinks during discover()', async () => {
+    writeFileSync(
+      join(tempDir, 'cfgmod.js'),
+      `export default {
+        execute: async () => ({}),
+        description: 'Config-driven module',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+      'utf-8',
+    );
+
+    const config = new Config({
+      extensions: { root: tempDir, max_depth: 3, follow_symlinks: false },
+    });
+    const registry = new Registry({ config });
+    const count = await registry.discover();
+
+    expect(count).toBe(1);
+    expect(registry.has('cfgmod')).toBe(true);
+  });
+});
+
+/* -----------------------------------------------------------
+ * discover() onLoad failure in _registerInOrder
+ * --------------------------------------------------------- */
+
+describe('Registry discover() onLoad failure during _registerInOrder', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'apcore-registry-onloadfail-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('skips module and warns when onLoad throws during discover()', async () => {
+    writeFileSync(
+      join(tempDir, 'failload.js'),
+      `export default {
+        execute: async () => ({}),
+        description: 'Module with failing onLoad',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+        onLoad() { throw new Error('onLoad exploded'); },
+      };`,
+      'utf-8',
+    );
+
+    writeFileSync(
+      join(tempDir, 'goodmod.js'),
+      `export default {
+        execute: async () => ({}),
+        description: 'Good module',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+      'utf-8',
+    );
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const registry = new Registry({ extensionsDir: tempDir });
+    const count = await registry.discover();
+
+    // Only the good module should be registered; failload is skipped
+    expect(count).toBe(1);
+    expect(registry.has('goodmod')).toBe(true);
+    expect(registry.has('failload')).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[apcore:registry]'),
+      expect.any(Error),
+    );
+    warnSpy.mockRestore();
+  });
+});
+
+/* -----------------------------------------------------------
+ * discover() with extensionsDirs (multi-root / scanMultiRoot path)
+ * --------------------------------------------------------- */
+
+describe('Registry discover() with extensionsDirs (multi-root)', () => {
+  let tempDirA: string;
+  let tempDirB: string;
+
+  beforeEach(() => {
+    tempDirA = mkdtempSync(join(tmpdir(), 'apcore-registry-multiroot-a-'));
+    tempDirB = mkdtempSync(join(tmpdir(), 'apcore-registry-multiroot-b-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDirA, { recursive: true, force: true });
+    rmSync(tempDirB, { recursive: true, force: true });
+  });
+
+  it('discovers modules across multiple extension directories', async () => {
+    writeFileSync(
+      join(tempDirA, 'alpha.js'),
+      `export default {
+        execute: async () => ({}),
+        description: 'Alpha module',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+      'utf-8',
+    );
+
+    writeFileSync(
+      join(tempDirB, 'beta.js'),
+      `export default {
+        execute: async () => ({}),
+        description: 'Beta module',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+      'utf-8',
+    );
+
+    // When using extensionsDirs with multiple roots, scanMultiRoot prefixes
+    // each module ID with the namespace (basename of the root dir by default).
+    const registry = new Registry({ extensionsDirs: [tempDirA, tempDirB] });
+    const count = await registry.discover();
+
+    expect(count).toBe(2);
+    expect(registry.count).toBe(2);
+  });
+
+  it('discovers modules from an extensionsDirs object entry with namespace', async () => {
+    writeFileSync(
+      join(tempDirA, 'nsmod.js'),
+      `export default {
+        execute: async () => ({}),
+        description: 'Namespaced module',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+      'utf-8',
+    );
+
+    const registry = new Registry({
+      extensionsDirs: [{ root: tempDirA, namespace: 'myns' }],
+    });
+    const count = await registry.discover();
+
+    expect(count).toBe(1);
+  });
+});
+
+/* -----------------------------------------------------------
+ * discover() with idMapPath (_applyIdMapOverrides path)
+ * --------------------------------------------------------- */
+
+describe('Registry discover() with idMapPath', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'apcore-registry-idmap-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('applies ID map overrides to discovered modules', async () => {
+    writeFileSync(
+      join(tempDir, 'mymod.js'),
+      `export default {
+        execute: async () => ({}),
+        description: 'ID map overridden module',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+      'utf-8',
+    );
+
+    const idMapPath = join(tempDir, 'idmap.yaml');
+    writeFileSync(
+      idMapPath,
+      [
+        'mappings:',
+        '  - file: mymod.js',
+        '    id: custom.mapped.id',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const registry = new Registry({ extensionsDir: tempDir, idMapPath });
+    const count = await registry.discover();
+
+    expect(count).toBe(1);
+    expect(registry.has('custom.mapped.id')).toBe(true);
+    expect(registry.has('mymod')).toBe(false);
+  });
+
+  it('discovers normally when ID map has no matching entry for a file', async () => {
+    writeFileSync(
+      join(tempDir, 'unmapped.js'),
+      `export default {
+        execute: async () => ({}),
+        description: 'Unmapped module',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+      'utf-8',
+    );
+
+    const idMapPath = join(tempDir, 'idmap.yaml');
+    writeFileSync(
+      idMapPath,
+      ['mappings:', '  - file: other.js', '    id: other.id'].join('\n'),
+      'utf-8',
+    );
+
+    const registry = new Registry({ extensionsDir: tempDir, idMapPath });
+    const count = await registry.discover();
+
+    expect(count).toBe(1);
+    expect(registry.has('unmapped')).toBe(true);
+  });
+});
+
+/* -----------------------------------------------------------
+ * list() metaTags from companion metadata
+ * --------------------------------------------------------- */
+
+describe('Registry list() metaTags from companion metadata', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'apcore-registry-metatags-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('filters using tags stored in _moduleMeta when module object has no tags', async () => {
+    writeFileSync(
+      join(tempDir, 'notagmod.js'),
+      `export default {
+        execute: async () => ({}),
+        description: 'No tags on module object',
+        inputSchema: { type: 'object' },
+        outputSchema: { type: 'object' },
+      };`,
+      'utf-8',
+    );
+
+    writeFileSync(
+      join(tempDir, 'notagmod_meta.yaml'),
+      ['tags:', '  - alpha', '  - beta'].join('\n'),
+      'utf-8',
+    );
+
+    const registry = new Registry({ extensionsDir: tempDir });
+    await registry.discover();
+
+    expect(registry.list({ tags: ['alpha'] })).toEqual(['notagmod']);
+    expect(registry.list({ tags: ['beta'] })).toEqual(['notagmod']);
+    expect(registry.list({ tags: ['gamma'] })).toEqual([]);
   });
 });

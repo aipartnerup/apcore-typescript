@@ -223,13 +223,17 @@ export class Registry {
 
     this._modules.set(moduleId, module);
 
-    // Call onLoad if available
+    // Populate metadata from the module object
     const modObj = module as Record<string, unknown>;
+    this._moduleMeta.set(moduleId, mergeModuleMetadata(modObj, {}));
+
+    // Call onLoad if available
     if (typeof modObj['onLoad'] === 'function') {
       try {
         (modObj['onLoad'] as () => void)();
       } catch (e) {
         this._modules.delete(moduleId);
+        this._moduleMeta.delete(moduleId);
         throw e;
       }
     }
