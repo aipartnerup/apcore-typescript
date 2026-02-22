@@ -24,8 +24,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
       - name: Run pre-commit checks
-        run: pnpm exec pre-commit run --all-files
+        run: pre-commit run --all-files
 
       - name: Run tests
         run: pnpm test
