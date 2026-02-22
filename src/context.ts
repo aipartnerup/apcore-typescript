@@ -1,3 +1,6 @@
+
+import { v4 as uuidv4 } from 'uuid';
+
 /**
  * Execution context, identity, and context creation.
  */
@@ -51,7 +54,7 @@ export class Context {
     data?: Record<string, unknown>,
   ): Context {
     return new Context(
-      crypto.randomUUID(),
+      uuidv4(),
       null,
       [],
       executor,

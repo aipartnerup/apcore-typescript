@@ -32,7 +32,8 @@
   "license": "MIT",
   "dependencies": {
     "@sinclair/typebox": "^0.34.0",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
