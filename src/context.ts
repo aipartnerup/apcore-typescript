@@ -1,5 +1,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
+import type { CancelToken } from './cancel.js';
+import type { TraceParent } from './trace-context.js';
 
 /**
  * Execution context, identity, and context creation.
@@ -29,6 +31,7 @@ export class Context {
   readonly identity: Identity | null;
   redactedInputs: Record<string, unknown> | null;
   readonly data: Record<string, unknown>;
+  readonly cancelToken: CancelToken | null;
 
   constructor(
     traceId: string,
@@ -38,6 +41,7 @@ export class Context {
     identity: Identity | null = null,
     redactedInputs: Record<string, unknown> | null = null,
     data: Record<string, unknown> = {},
+    cancelToken: CancelToken | null = null,
   ) {
     this.traceId = traceId;
     this.callerId = callerId;
@@ -46,15 +50,31 @@ export class Context {
     this.identity = identity;
     this.redactedInputs = redactedInputs;
     this.data = data;
+    this.cancelToken = cancelToken;
   }
 
+  /**
+   * Create a new top-level Context with a generated UUID v4 traceId.
+   *
+   * When `traceParent` is provided, its `traceId` (32 hex chars) is
+   * converted to UUID format (8-4-4-4-12) and used instead of generating
+   * a new one.
+   */
   static create(
     executor: unknown = null,
     identity: Identity | null = null,
     data?: Record<string, unknown>,
+    traceParent?: TraceParent | null,
   ): Context {
+    let traceId: string;
+    if (traceParent) {
+      const h = traceParent.traceId;
+      traceId = `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+    } else {
+      traceId = uuidv4();
+    }
     return new Context(
-      uuidv4(),
+      traceId,
       null,
       [],
       executor,
@@ -62,6 +82,57 @@ export class Context {
       null,
       data ?? {},
     );
+  }
+
+  toJSON(): Record<string, unknown> {
+    const publicData: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(this.data)) {
+      if (!key.startsWith('_')) {
+        publicData[key] = value;
+      }
+    }
+    return {
+      traceId: this.traceId,
+      callerId: this.callerId,
+      callChain: [...this.callChain],
+      identity: this.identity ? {
+        id: this.identity.id,
+        type: this.identity.type,
+        roles: [...this.identity.roles],
+        attrs: { ...this.identity.attrs },
+      } : null,
+      redactedInputs: this.redactedInputs ? { ...this.redactedInputs } : null,
+      data: publicData,
+    };
+  }
+
+  static fromJSON(data: Record<string, unknown>, executor?: unknown): Context {
+    const identityData = data.identity as Record<string, unknown> | null;
+    const identity = identityData ? {
+      id: identityData.id as string,
+      type: (identityData.type as string) ?? 'user',
+      roles: Object.freeze([...(Array.isArray(identityData.roles) ? identityData.roles : [])]),
+      attrs: Object.freeze((identityData.attrs && typeof identityData.attrs === 'object' ? identityData.attrs : {}) as Record<string, unknown>),
+    } : null;
+    return new Context(
+      data.traceId as string,
+      (data.callerId as string) ?? null,
+      (data.callChain as string[]) ?? [],
+      executor ?? null,
+      identity,
+      (data.redactedInputs as Record<string, unknown>) ?? null,
+      data.data ? { ...(data.data as Record<string, unknown>) } : {},
+    );
+  }
+
+  get logger(): { debug: (...args: unknown[]) => void; info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void } {
+    const prefix = `[apcore:${this.callerId ?? 'unknown'}]`;
+    return {
+      debug: (...args: unknown[]) => console.debug(prefix, ...args),
+      info: (...args: unknown[]) => console.info(prefix, ...args),
+      warn: (...args: unknown[]) => console.warn(prefix, ...args),
+      error: (...args: unknown[]) => console.error(prefix, ...args),
+    };
   }
 
   child(targetModuleId: string): Context {
@@ -73,6 +144,17 @@ export class Context {
       this.identity,
       null,
       this.data, // shared reference
+      this.cancelToken,
     );
   }
+}
+
+/**
+ * Interface for creating Context from framework-specific requests.
+ *
+ * Web framework integrations should implement this to extract Identity
+ * from HTTP requests (e.g., Express request, JWT tokens, API keys).
+ */
+export interface ContextFactory {
+  createContext(request: unknown): Context;
 }

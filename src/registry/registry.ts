@@ -2,7 +2,8 @@
  * Central module registry for discovering, registering, and querying modules.
  */
 
-import { resolve } from 'node:path';
+import { watch as fsWatch, accessSync } from 'node:fs';
+import { resolve, join, basename, extname } from 'node:path';
 import type { Config } from '../config.js';
 import { InvalidInputError, ModuleNotFoundError } from '../errors.js';
 import type { ModuleAnnotations, ModuleExample } from '../module.js';
@@ -27,6 +28,30 @@ export const REGISTRY_EVENTS = Object.freeze({
  */
 export const MODULE_ID_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
 
+/**
+ * Maximum allowed length for a module ID.
+ */
+export const MAX_MODULE_ID_LENGTH = 128;
+
+/**
+ * Reserved words that cannot appear as any segment of a module ID.
+ */
+export const RESERVED_WORDS = new Set(['system', 'internal', 'core', 'apcore', 'plugin', 'schema', 'acl']);
+
+/**
+ * Interface for custom module discovery.
+ */
+export interface Discoverer {
+  discover(roots: string[]): Array<{ moduleId: string; module: unknown }> | Promise<Array<{ moduleId: string; module: unknown }>>;
+}
+
+/**
+ * Interface for custom module validation.
+ */
+export interface ModuleValidator {
+  validate(module: unknown): string[] | Promise<string[]>;
+}
+
 type EventCallback = (moduleId: string, module: unknown) => void;
 
 export class Registry {
@@ -40,6 +65,10 @@ export class Registry {
   private _idMap: Record<string, Record<string, unknown>> = {};
   private _schemaCache: Map<string, Record<string, unknown>> = new Map();
   private _config: Config | null;
+  private _watchers?: Array<{ close(): void }>;
+  private _debounceTimers?: Map<string, number>;
+  private _customDiscoverer: Discoverer | null = null;
+  private _customValidator: ModuleValidator | null = null;
 
   constructor(options?: {
     config?: Config | null;
@@ -76,13 +105,58 @@ export class Registry {
     }
   }
 
+  setDiscoverer(discoverer: Discoverer): void {
+    this._customDiscoverer = discoverer;
+  }
+
+  setValidator(validator: ModuleValidator): void {
+    this._customValidator = validator;
+  }
+
   async discover(): Promise<number> {
+    if (this._customDiscoverer !== null) {
+      return this._discoverCustom();
+    }
+    return this._discoverDefault();
+  }
+
+  private async _discoverCustom(): Promise<number> {
+    const rootPaths = this._extensionRoots.map((r) => r['root'] as string);
+    const customModules = await this._customDiscoverer!.discover(rootPaths);
+
+    let count = 0;
+    for (const entry of customModules) {
+      const { moduleId, module: mod } = entry;
+
+      // Apply custom validator if set
+      if (this._customValidator !== null) {
+        const errors = await this._customValidator.validate(mod);
+        if (errors.length > 0) {
+          console.warn(
+            `[apcore:registry] Custom validator rejected module '${moduleId}': ${errors.join('; ')}`,
+          );
+          continue;
+        }
+      }
+
+      try {
+        this.register(moduleId, mod);
+        count++;
+      } catch (e) {
+        console.warn(`[apcore:registry] Failed to register custom-discovered module '${moduleId}':`, e);
+      }
+    }
+
+    return count;
+  }
+
+  private async _discoverDefault(): Promise<number> {
     const discovered = this._scanRoots();
     this._applyIdMapOverrides(discovered);
 
     const rawMetadata = this._loadAllMetadata(discovered);
     const resolvedModules = await this._resolveAllEntryPoints(discovered, rawMetadata);
-    const validModules = this._validateAll(resolvedModules);
+    const validModules = await this._validateAll(resolvedModules);
     const loadOrder = this._resolveLoadOrder(validModules, rawMetadata);
 
     return this._registerInOrder(loadOrder, validModules, rawMetadata);
@@ -152,10 +226,15 @@ export class Registry {
     return resolvedModules;
   }
 
-  private _validateAll(resolvedModules: Map<string, unknown>): Map<string, unknown> {
+  private async _validateAll(resolvedModules: Map<string, unknown>): Promise<Map<string, unknown>> {
     const validModules = new Map<string, unknown>();
     for (const [modId, mod] of resolvedModules) {
-      if (validateModule(mod).length === 0) {
+      if (this._customValidator !== null) {
+        const errors = await this._customValidator.validate(mod);
+        if (errors.length === 0) {
+          validModules.set(modId, mod);
+        }
+      } else if (validateModule(mod).length === 0) {
         validModules.set(modId, mod);
       }
     }
@@ -215,6 +294,16 @@ export class Registry {
       throw new InvalidInputError(
         `Invalid module ID: "${moduleId}". Must match pattern: ${MODULE_ID_PATTERN} (lowercase, digits, underscores, dots only; no hyphens)`,
       );
+    }
+
+    const parts = moduleId.split('.');
+    for (const part of parts) {
+      if (RESERVED_WORDS.has(part)) {
+        throw new InvalidInputError(`Module ID contains reserved word: '${part}'`);
+      }
+    }
+    if (moduleId.length > MAX_MODULE_ID_LENGTH) {
+      throw new InvalidInputError(`Module ID exceeds maximum length of ${MAX_MODULE_ID_LENGTH}: ${moduleId.length}`);
     }
 
     if (this._modules.has(moduleId)) {
@@ -333,6 +422,49 @@ export class Registry {
     };
   }
 
+  describe(moduleId: string): string {
+    const module = this.get(moduleId);
+    if (module === null) {
+      throw new ModuleNotFoundError(moduleId);
+    }
+
+    // Check for custom describe method
+    const modObj = module as Record<string, unknown>;
+    if (typeof modObj['describe'] === 'function') {
+      return (modObj['describe'] as () => string)();
+    }
+
+    // Auto-generate from descriptor
+    const descriptor = this.getDefinition(moduleId);
+    if (descriptor === null) {
+      return `Module: ${moduleId}\n\nNo description available.`;
+    }
+
+    const lines: string[] = [`# ${descriptor.moduleId}`];
+    if (descriptor.description) {
+      lines.push(`\n${descriptor.description}`);
+    }
+    if (descriptor.tags.length > 0) {
+      lines.push(`\n**Tags:** ${descriptor.tags.join(', ')}`);
+    }
+    const props = descriptor.inputSchema['properties'] as Record<string, Record<string, unknown>> | undefined;
+    if (props && Object.keys(props).length > 0) {
+      lines.push('\n**Parameters:**');
+      const requiredFields = (descriptor.inputSchema['required'] as string[]) ?? [];
+      for (const [param, schema] of Object.entries(props)) {
+        const paramType = (schema['type'] as string) ?? 'any';
+        const paramDesc = (schema['description'] as string) ?? '';
+        const isRequired = requiredFields.includes(param);
+        const reqMarker = isRequired ? ' (required)' : '';
+        lines.push(`- \`${param}\` (${paramType})${reqMarker}: ${paramDesc}`);
+      }
+    }
+    if (descriptor.documentation) {
+      lines.push(`\n**Documentation:**\n${descriptor.documentation}`);
+    }
+    return lines.join('\n');
+  }
+
   on(event: string, callback: EventCallback): void {
     const validEvents = Object.values(REGISTRY_EVENTS) as string[];
     if (!validEvents.includes(event)) {
@@ -352,6 +484,94 @@ export class Registry {
         console.warn(`[apcore:registry] Event callback error for '${event}' on ${moduleId}:`, e);
       }
     }
+  }
+
+  watch(): void {
+    if (this._watchers && this._watchers.length > 0) {
+      return; // Already watching
+    }
+
+    this._watchers = [];
+    this._debounceTimers = new Map<string, number>();
+
+    for (const root of this._extensionRoots) {
+      const rootPath = typeof root === "string" ? root : (root as Record<string, unknown>).root as string;
+      if (!rootPath) continue;
+
+      try {
+        const watcher = fsWatch(rootPath, { recursive: true }, (eventType: string, filename: string | null) => {
+          if (!filename) return;
+          if (!filename.endsWith(".ts") && !filename.endsWith(".js")) return;
+
+          const fullPath = join(rootPath, filename);
+          const now = Date.now();
+          const last = this._debounceTimers?.get(fullPath) ?? 0;
+          if (now - last < 300) return;
+          this._debounceTimers?.set(fullPath, now);
+
+          if (eventType === "rename") {
+            // Could be create or delete
+            try {
+              accessSync(fullPath);
+              this._handleFileChange(fullPath);
+            } catch {
+              this._handleFileDeletion(fullPath);
+            }
+          } else {
+            this._handleFileChange(fullPath);
+          }
+        });
+        this._watchers.push(watcher);
+      } catch {
+        // Skip directories that don't exist
+      }
+    }
+  }
+
+  unwatch(): void {
+    if (this._watchers) {
+      for (const watcher of this._watchers) {
+        watcher.close();
+      }
+      this._watchers = [];
+    }
+    this._debounceTimers = undefined;
+  }
+
+  private _handleFileChange(filePath: string): void {
+    const moduleId = this._pathToModuleId(filePath);
+
+    if (moduleId && this.has(moduleId)) {
+      const oldModule = this.get(moduleId) as Record<string, unknown> | null;
+      if (oldModule && typeof oldModule.onUnload === "function") {
+        try { oldModule.onUnload(); } catch { /* ignore */ }
+      }
+      this.unregister(moduleId);
+    }
+
+    // Re-import is complex in ES modules - emit event for user to handle
+    this._triggerEvent("register", moduleId ?? basename(filePath, extname(filePath)), null);
+  }
+
+  private _handleFileDeletion(path: string): void {
+    const moduleId = this._pathToModuleId(path);
+    if (moduleId && this.has(moduleId)) {
+      const module = this.get(moduleId) as Record<string, unknown> | null;
+      if (module && typeof module.onUnload === "function") {
+        try { module.onUnload(); } catch { /* ignore */ }
+      }
+      this.unregister(moduleId);
+    }
+  }
+
+  private _pathToModuleId(filePath: string): string | null {
+    const base = basename(filePath, extname(filePath));
+    for (const mid of this.moduleIds) {
+      if (mid.endsWith(base) || mid === base) {
+        return mid;
+      }
+    }
+    return null;
   }
 
   clearCache(): void {

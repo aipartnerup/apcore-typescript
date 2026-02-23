@@ -1006,3 +1006,392 @@ describe('Registry list() metaTags from companion metadata', () => {
     expect(registry.list({ tags: ['gamma'] })).toEqual([]);
   });
 });
+
+/* -----------------------------------------------------------
+ * describe() tests
+ * --------------------------------------------------------- */
+
+describe('Registry.describe()', () => {
+  it('calls custom describe() method when module has one', () => {
+    const registry = new Registry();
+    const mod = {
+      execute: async () => ({}),
+      description: 'Module with custom describe',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+      describe() {
+        return 'Custom description from the module itself.';
+      },
+    };
+    registry.register('test.custom', mod);
+    expect(registry.describe('test.custom')).toBe('Custom description from the module itself.');
+  });
+
+  it('auto-generates markdown when no custom describe method', () => {
+    const registry = new Registry();
+    const mod = {
+      execute: async () => ({}),
+      description: 'A valid test module',
+      inputSchema: {
+        type: 'object',
+        properties: { value: { type: 'string', description: 'Input value' } },
+        required: ['value'],
+      },
+      outputSchema: { type: 'object' },
+      tags: ['test', 'sample'],
+    };
+    registry.register('test.auto', mod);
+    const result = registry.describe('test.auto');
+    expect(result).toContain('# test.auto');
+    expect(result).toContain('A valid test module');
+    expect(result).toContain('**Tags:** test, sample');
+    expect(result).toContain('**Parameters:**');
+    expect(result).toContain('`value`');
+    expect(result).toContain('(required)');
+  });
+
+  it('includes documentation section when available', () => {
+    const registry = new Registry();
+    const mod = {
+      execute: async () => ({}),
+      description: 'A documented module',
+      documentation: 'This module does interesting things.',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+    };
+    registry.register('test.documented', mod);
+    const result = registry.describe('test.documented');
+    expect(result).toContain('**Documentation:**');
+    expect(result).toContain('This module does interesting things.');
+  });
+
+  it('throws ModuleNotFoundError for unregistered module', () => {
+    const registry = new Registry();
+    expect(() => registry.describe('nonexistent.module')).toThrow(ModuleNotFoundError);
+  });
+});
+
+/* -----------------------------------------------------------
+ * Hot Reload (watch/unwatch)
+ * --------------------------------------------------------- */
+
+describe('Registry hot reload (watch/unwatch)', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'apcore-registry-hotreload-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('watch() does not throw when called with a valid directory', () => {
+    const registry = new Registry({ extensionsDir: tempDir });
+    expect(() => registry.watch()).not.toThrow();
+    registry.unwatch();
+  });
+
+  it('unwatch() is safe to call when not watching', () => {
+    const registry = new Registry();
+    expect(() => registry.unwatch()).not.toThrow();
+    // Call again to verify idempotent
+    expect(() => registry.unwatch()).not.toThrow();
+  });
+
+  it('watch() is idempotent (calling twice does not throw)', () => {
+    const registry = new Registry({ extensionsDir: tempDir });
+    registry.watch();
+    expect(() => registry.watch()).not.toThrow();
+    registry.unwatch();
+  });
+
+  it('_pathToModuleId maps a file path to a module ID correctly', () => {
+    const registry = new Registry();
+    const mod = {
+      execute: async () => ({}),
+      description: 'Test module',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+    };
+    registry.register('my_module', mod);
+    const result = (registry as any)._pathToModuleId('/some/path/my_module.ts');
+    expect(result).toBe('my_module');
+  });
+
+  it('_pathToModuleId maps a namespaced module correctly', () => {
+    const registry = new Registry();
+    const mod = {
+      execute: async () => ({}),
+      description: 'Namespaced module',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+    };
+    registry.register('ns.my_module', mod);
+    const result = (registry as any)._pathToModuleId('/some/path/my_module.js');
+    expect(result).toBe('ns.my_module');
+  });
+
+  it('_pathToModuleId returns null for an unknown file', () => {
+    const registry = new Registry();
+    const mod = {
+      execute: async () => ({}),
+      description: 'Test module',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+    };
+    registry.register('my_module', mod);
+    const result = (registry as any)._pathToModuleId('/some/path/unknown_file.ts');
+    expect(result).toBeNull();
+  });
+
+  it('_handleFileDeletion unregisters a known module', () => {
+    const registry = new Registry();
+    let unloaded = false;
+    const mod = {
+      execute: async () => ({}),
+      description: 'Deletable module',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+      onUnload() { unloaded = true; },
+    };
+    registry.register('deletable', mod);
+    expect(registry.has('deletable')).toBe(true);
+
+    (registry as any)._handleFileDeletion('/extensions/deletable.ts');
+
+    expect(registry.has('deletable')).toBe(false);
+    expect(unloaded).toBe(true);
+  });
+
+  it('_handleFileDeletion does nothing for an unknown file', () => {
+    const registry = new Registry();
+    const mod = {
+      execute: async () => ({}),
+      description: 'Existing module',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+    };
+    registry.register('existing', mod);
+    // Should not throw, should not affect existing modules
+    (registry as any)._handleFileDeletion('/some/path/unknown.ts');
+    expect(registry.has('existing')).toBe(true);
+  });
+});
+
+/* -----------------------------------------------------------
+ * Custom Discoverer
+ * --------------------------------------------------------- */
+
+describe('Registry custom discoverer', () => {
+  it('uses custom discoverer when set', async () => {
+    const modA = {
+      execute: async () => ({}),
+      description: 'Custom module A',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+    };
+    const modB = {
+      execute: async () => ({}),
+      description: 'Custom module B',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+    };
+
+    let calledWithRoots: string[] | null = null;
+    const discoverer = {
+      discover(roots: string[]) {
+        calledWithRoots = roots;
+        return [
+          { moduleId: 'custom.a', module: modA },
+          { moduleId: 'custom.b', module: modB },
+        ];
+      },
+    };
+
+    const registry = new Registry();
+    registry.setDiscoverer(discoverer);
+    const count = await registry.discover();
+
+    expect(count).toBe(2);
+    expect(registry.has('custom.a')).toBe(true);
+    expect(registry.has('custom.b')).toBe(true);
+    expect(registry.get('custom.a')).toBe(modA);
+    expect(registry.get('custom.b')).toBe(modB);
+    expect(calledWithRoots).toEqual(['./extensions']);
+  });
+
+  it('uses default discoverer when none set', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'apcore-registry-defdisc-'));
+    try {
+      writeModuleFile(
+        tempDir,
+        'default_mod.js',
+        `export default {
+          execute: async () => ({}),
+          description: 'Default module',
+          inputSchema: { type: 'object' },
+          outputSchema: { type: 'object' },
+        };`,
+      );
+
+      const registry = new Registry({ extensionsDir: tempDir });
+      const count = await registry.discover();
+
+      expect(count).toBe(1);
+      expect(registry.has('default_mod')).toBe(true);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('supports async discoverer', async () => {
+    const mod = {
+      execute: async () => ({}),
+      description: 'Async discovered module',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+    };
+
+    const discoverer = {
+      async discover(_roots: string[]) {
+        return [{ moduleId: 'async.mod', module: mod }];
+      },
+    };
+
+    const registry = new Registry();
+    registry.setDiscoverer(discoverer);
+    const count = await registry.discover();
+
+    expect(count).toBe(1);
+    expect(registry.has('async.mod')).toBe(true);
+  });
+});
+
+/* -----------------------------------------------------------
+ * Custom Validator
+ * --------------------------------------------------------- */
+
+describe('Registry custom validator', () => {
+  it('rejects modules when custom validator returns errors', async () => {
+    const mod = {
+      execute: async () => ({}),
+      description: 'To be rejected',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+    };
+
+    const discoverer = {
+      discover(_roots: string[]) {
+        return [{ moduleId: 'rejected.mod', module: mod }];
+      },
+    };
+
+    const validator = {
+      validate(_module: unknown) {
+        return ['rejected by custom validator'];
+      },
+    };
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const registry = new Registry();
+    registry.setDiscoverer(discoverer);
+    registry.setValidator(validator);
+    const count = await registry.discover();
+
+    expect(count).toBe(0);
+    expect(registry.has('rejected.mod')).toBe(false);
+    warnSpy.mockRestore();
+  });
+
+  it('accepts modules when custom validator returns empty list', async () => {
+    const mod = {
+      execute: async () => ({}),
+      description: 'To be accepted',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+    };
+
+    const discoverer = {
+      discover(_roots: string[]) {
+        return [{ moduleId: 'accepted.mod', module: mod }];
+      },
+    };
+
+    const validator = {
+      validate(_module: unknown) {
+        return [];
+      },
+    };
+
+    const registry = new Registry();
+    registry.setDiscoverer(discoverer);
+    registry.setValidator(validator);
+    const count = await registry.discover();
+
+    expect(count).toBe(1);
+    expect(registry.has('accepted.mod')).toBe(true);
+    expect(registry.get('accepted.mod')).toBe(mod);
+  });
+
+  it('custom validator works with default file-system discovery', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'apcore-registry-customval-'));
+    try {
+      writeModuleFile(
+        tempDir,
+        'val_mod.js',
+        `export default {
+          execute: async () => ({}),
+          description: 'Validated module',
+          inputSchema: { type: 'object' },
+          outputSchema: { type: 'object' },
+        };`,
+      );
+
+      const validator = {
+        validate(_module: unknown) {
+          return ['rejected by custom validator'];
+        },
+      };
+
+      const registry = new Registry({ extensionsDir: tempDir });
+      registry.setValidator(validator);
+      const count = await registry.discover();
+
+      // Custom validator rejects all, so nothing should be registered
+      expect(count).toBe(0);
+      expect(registry.has('val_mod')).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('supports async validator', async () => {
+    const mod = {
+      execute: async () => ({}),
+      description: 'Async validated module',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object' },
+    };
+
+    const discoverer = {
+      discover(_roots: string[]) {
+        return [{ moduleId: 'async.validated', module: mod }];
+      },
+    };
+
+    const validator = {
+      async validate(_module: unknown) {
+        return [];
+      },
+    };
+
+    const registry = new Registry();
+    registry.setDiscoverer(discoverer);
+    registry.setValidator(validator);
+    const count = await registry.discover();
+
+    expect(count).toBe(1);
+    expect(registry.has('async.validated')).toBe(true);
+  });
+});

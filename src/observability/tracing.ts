@@ -74,6 +74,62 @@ export class InMemoryExporter implements SpanExporter {
   }
 }
 
+export class OTLPExporter implements SpanExporter {
+  private _endpoint: string;
+  private _serviceName: string;
+  private _headers: Record<string, string>;
+
+  constructor(options?: {
+    endpoint?: string;
+    serviceName?: string;
+    headers?: Record<string, string>;
+  }) {
+    this._endpoint = options?.endpoint ?? 'http://localhost:4318/v1/traces';
+    this._serviceName = options?.serviceName ?? 'apcore';
+    this._headers = options?.headers ?? {};
+  }
+
+  export(span: Span): void {
+    const payload = {
+      resourceSpans: [{
+        resource: {
+          attributes: [
+            { key: 'service.name', value: { stringValue: this._serviceName } },
+          ],
+        },
+        scopeSpans: [{
+          scope: { name: 'apcore' },
+          spans: [{
+            traceId: span.traceId,
+            spanId: span.spanId,
+            parentSpanId: span.parentSpanId ?? undefined,
+            name: span.name,
+            startTimeUnixNano: String(Math.round(span.startTime * 1_000_000_000)),
+            endTimeUnixNano: span.endTime ? String(Math.round(span.endTime * 1_000_000_000)) : undefined,
+            status: { code: span.status === 'ok' ? 1 : 2 },
+            attributes: Object.entries(span.attributes).map(([key, value]) => ({
+              key,
+              value: { stringValue: String(value) },
+            })),
+          }],
+        }],
+      }],
+    };
+
+    // Fire-and-forget POST
+    fetch(this._endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...this._headers,
+      },
+      body: JSON.stringify(payload),
+    }).catch(() => {
+      // Silently ignore network errors
+    });
+  }
+}
+
 const VALID_STRATEGIES = new Set(['full', 'proportional', 'error_first', 'off']);
 
 export class TracingMiddleware extends Middleware {
@@ -96,6 +152,14 @@ export class TracingMiddleware extends Middleware {
     this._exporter = exporter;
     this._samplingRate = samplingRate;
     this._samplingStrategy = samplingStrategy;
+  }
+
+  /** Replace the span exporter used by this middleware. */
+  setExporter(exporter: SpanExporter): void {
+    if (!exporter || typeof exporter.export !== 'function') {
+      throw new Error('exporter must implement SpanExporter interface');
+    }
+    this._exporter = exporter;
   }
 
   private _shouldSample(context: Context): boolean {
@@ -129,7 +193,7 @@ export class TracingMiddleware extends Middleware {
     const span = createSpan({
       traceId: context.traceId,
       name: 'apcore.module.execute',
-      startTime: performance.now(),
+      startTime: Date.now() / 1000,
       parentSpanId,
       attributes: {
         moduleId,
@@ -151,9 +215,9 @@ export class TracingMiddleware extends Middleware {
     if (spansStack.length === 0) return null;
 
     const span = spansStack.pop()!;
-    span.endTime = performance.now();
+    span.endTime = Date.now() / 1000;
     span.status = 'ok';
-    span.attributes['duration_ms'] = span.endTime - span.startTime;
+    span.attributes['duration_ms'] = (span.endTime - span.startTime) * 1000;
     span.attributes['success'] = true;
 
     if (context.data['_tracing_sampled']) {
@@ -172,9 +236,9 @@ export class TracingMiddleware extends Middleware {
     if (spansStack.length === 0) return null;
 
     const span = spansStack.pop()!;
-    span.endTime = performance.now();
+    span.endTime = Date.now() / 1000;
     span.status = 'error';
-    span.attributes['duration_ms'] = span.endTime - span.startTime;
+    span.attributes['duration_ms'] = (span.endTime - span.startTime) * 1000;
     span.attributes['success'] = false;
     span.attributes['error_code'] = (error as unknown as Record<string, unknown>)['code'] ?? error.constructor.name;
 

@@ -3,9 +3,11 @@
  */
 
 // Core
+export { CancelToken, ExecutionCancelledError } from './cancel.js';
 export { Context, createIdentity } from './context.js';
-export type { Identity } from './context.js';
-export { Registry, REGISTRY_EVENTS, MODULE_ID_PATTERN } from './registry/registry.js';
+export type { Identity, ContextFactory } from './context.js';
+export { Registry, REGISTRY_EVENTS, MODULE_ID_PATTERN, MAX_MODULE_ID_LENGTH, RESERVED_WORDS } from './registry/registry.js';
+export type { Discoverer, ModuleValidator } from './registry/registry.js';
 export { Executor, redactSensitive, REDACTED_VALUE } from './executor.js';
 
 // Module types
@@ -58,6 +60,14 @@ export { Middleware, MiddlewareManager, MiddlewareChainError, BeforeMiddleware, 
 // Decorator
 export { module, FunctionModule, normalizeResult, makeAutoId } from './decorator.js';
 
+// Extensions
+export { ExtensionManager } from './extensions.js';
+export type { ExtensionPoint } from './extensions.js';
+
+// Async tasks
+export { AsyncTaskManager, TaskStatus } from './async-task.js';
+export type { TaskInfo } from './async-task.js';
+
 // Bindings
 export { BindingLoader } from './bindings.js';
 
@@ -77,9 +87,13 @@ export { toStrictSchema, applyLlmDescriptions, stripExtensions } from './schema/
 export type { ModuleDescriptor, DiscoveredModule, DependencyInfo } from './registry/types.js';
 
 // Observability
-export { TracingMiddleware, StdoutExporter, InMemoryExporter, createSpan } from './observability/tracing.js';
+export { TracingMiddleware, StdoutExporter, InMemoryExporter, OTLPExporter, createSpan } from './observability/tracing.js';
 export type { Span, SpanExporter } from './observability/tracing.js';
 export { MetricsCollector, MetricsMiddleware } from './observability/metrics.js';
 export { ContextLogger, ObsLoggingMiddleware } from './observability/context-logger.js';
+
+// Trace Context
+export { TraceContext } from './trace-context.js';
+export type { TraceParent } from './trace-context.js';
 
 export const VERSION = '0.3.0';

@@ -5,7 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2026-02-22
+## [0.5.0] - 2026-02-23
+
+### Added
+- **Cancellation support** with `CancelToken` and `ExecutionCancelledError`, including executor pre-execution cancellation checks.
+- **Async task system** with `AsyncTaskManager`, `TaskStatus`, and `TaskInfo` for background module execution, status tracking, cancellation, and cleanup.
+- **Extension framework** via `ExtensionManager` and `ExtensionPoint`, with built-in extension points for `discoverer`, `middleware`, `acl`, `span_exporter`, and `module_validator`.
+- **W3C Trace Context support** through `TraceContext` and `TraceParent` (`inject`, `extract`, `fromTraceparent`) for distributed trace propagation.
+- **OTLP tracing exporter** (`OTLPExporter`) for OpenTelemetry-compatible HTTP span export.
+- **Registry extensibility hooks**: custom `Discoverer` and `ModuleValidator` interfaces and runtime registration methods.
+- **Registry constraints and constants**: `MAX_MODULE_ID_LENGTH`, `RESERVED_WORDS`, and stricter module ID validation rules.
+- **Context interoperability APIs**: `Context.toJSON()`, `Context.fromJSON()`, and `ContextFactory` interface.
+
+### Changed
+- `Context.create()` now accepts optional `traceParent` and can derive `traceId` from inbound distributed trace headers.
+- `Registry.discover()` now supports async custom discovery/validation flow in addition to default filesystem discovery.
+- `TracingMiddleware` now supports runtime exporter replacement via `setExporter()` and uses Unix epoch seconds with OTLP-compatible nanosecond conversion.
+- Public exports were expanded in `index.ts` to expose new cancellation, extension, tracing, registry, and async-task APIs.
+- `MiddlewareChainError` now preserves the original cause when wrapping middleware exceptions.
+
+### Fixed
+- Improved cancellation correctness by bypassing middleware error recovery for `ExecutionCancelledError`.
+- Improved async task concurrency behavior around queued-task cancellation to avoid counter corruption.
+- Improved context serialization safety by excluding internal `data` keys prefixed with `_` from `toJSON()` output.
+
+### Tests
+- Added comprehensive tests for cancellation, async task management, extension wiring, trace context parsing/injection, registry hot-reload/custom hooks, and OTLP export behavior.
+
+## [0.4.0] - 2026-02-23
 
 ### Changed
 - Improved performance of `Executor.stream()` with optimized buffering.
@@ -13,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Introduced `ModuleAnnotations.batchProcessing` for enhanced batch processing capabilities.
 - Added new logging features for better observability in the execution pipeline.
+- **ExtensionManager** and **ExtensionPoint** exports for unified extension point management (discoverer, middleware, acl, span_exporter, module_validator)
+- **AsyncTaskManager**, **TaskStatus**, **TaskInfo** exports for async task execution with status tracking (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED) and cancellation
+- **TraceContext** and **TraceParent** exports for W3C Trace Context support with `inject()`, `extract()`, and `fromTraceparent()` methods
+- `Context.create()` accepts optional `traceParent` parameter for distributed trace propagation
 
 ### Fixed
 - Resolved issues with error handling in `context.ts`.

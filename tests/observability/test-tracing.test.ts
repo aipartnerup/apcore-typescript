@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Context } from '../../src/context.js';
 import {
   createSpan,
   InMemoryExporter,
+  OTLPExporter,
   StdoutExporter,
   TracingMiddleware,
 } from '../../src/observability/tracing.js';
@@ -127,5 +128,176 @@ describe('TracingMiddleware', () => {
   it('throws on invalid sampling strategy', () => {
     const exporter = new InMemoryExporter();
     expect(() => new TracingMiddleware(exporter, 1.0, 'invalid')).toThrow();
+  });
+
+  describe('setExporter', () => {
+    it('rejects null exporter', () => {
+      const mw = new TracingMiddleware(new InMemoryExporter());
+      expect(() => mw.setExporter(null as any)).toThrow('exporter must implement SpanExporter interface');
+    });
+
+    it('rejects object without export method', () => {
+      const mw = new TracingMiddleware(new InMemoryExporter());
+      expect(() => mw.setExporter({} as any)).toThrow('exporter must implement SpanExporter interface');
+    });
+
+    it('accepts valid exporter', () => {
+      const mw = new TracingMiddleware(new InMemoryExporter());
+      const newExporter = { export: () => {} };
+      expect(() => mw.setExporter(newExporter)).not.toThrow();
+    });
+  });
+});
+
+describe('OTLPExporter', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function makeTestSpan() {
+    return createSpan({
+      traceId: 'trace-abc',
+      name: 'test.op',
+      startTime: 1000,
+      spanId: 'span-123',
+      parentSpanId: 'parent-456',
+      attributes: { foo: 'bar' },
+    });
+  }
+
+  it('calls fetch with correct URL and payload shape', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(new Response('ok'));
+    globalThis.fetch = mockFetch;
+
+    const exporter = new OTLPExporter();
+    const span = makeTestSpan();
+    span.endTime = 2000;
+    span.status = 'ok';
+    exporter.export(span);
+
+    // Wait for the fire-and-forget promise
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toBe('http://localhost:4318/v1/traces');
+    expect(options.method).toBe('POST');
+    expect(options.headers['Content-Type']).toBe('application/json');
+
+    const body = JSON.parse(options.body);
+    expect(body.resourceSpans).toHaveLength(1);
+    expect(body.resourceSpans[0].resource.attributes[0].key).toBe('service.name');
+    expect(body.resourceSpans[0].resource.attributes[0].value.stringValue).toBe('apcore');
+
+    const exportedSpan = body.resourceSpans[0].scopeSpans[0].spans[0];
+    expect(exportedSpan.traceId).toBe('trace-abc');
+    expect(exportedSpan.spanId).toBe('span-123');
+    expect(exportedSpan.parentSpanId).toBe('parent-456');
+    expect(exportedSpan.name).toBe('test.op');
+    expect(exportedSpan.status.code).toBe(1);
+    expect(exportedSpan.attributes).toEqual([
+      { key: 'foo', value: { stringValue: 'bar' } },
+    ]);
+  });
+
+  it('uses default endpoint when none provided', () => {
+    const mockFetch = vi.fn().mockResolvedValue(new Response('ok'));
+    globalThis.fetch = mockFetch;
+
+    const exporter = new OTLPExporter();
+    exporter.export(makeTestSpan());
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toBe('http://localhost:4318/v1/traces');
+  });
+
+  it('uses custom endpoint when provided', () => {
+    const mockFetch = vi.fn().mockResolvedValue(new Response('ok'));
+    globalThis.fetch = mockFetch;
+
+    const exporter = new OTLPExporter({ endpoint: 'http://custom:9999/traces' });
+    exporter.export(makeTestSpan());
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toBe('http://custom:9999/traces');
+  });
+
+  it('includes custom headers in fetch call', () => {
+    const mockFetch = vi.fn().mockResolvedValue(new Response('ok'));
+    globalThis.fetch = mockFetch;
+
+    const exporter = new OTLPExporter({
+      headers: { 'X-Api-Key': 'secret-key', 'X-Custom': 'value' },
+    });
+    exporter.export(makeTestSpan());
+
+    const headers = mockFetch.mock.calls[0][1].headers;
+    expect(headers['X-Api-Key']).toBe('secret-key');
+    expect(headers['X-Custom']).toBe('value');
+    expect(headers['Content-Type']).toBe('application/json');
+  });
+
+  it('silently catches network errors', async () => {
+    const mockFetch = vi.fn().mockRejectedValue(new Error('network down'));
+    globalThis.fetch = mockFetch;
+
+    const exporter = new OTLPExporter();
+    // Should not throw
+    expect(() => exporter.export(makeTestSpan())).not.toThrow();
+
+    // Wait for the rejected promise to be caught
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+  });
+
+  it('converts timestamps to nanoseconds in OTLP payload', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(new Response('ok'));
+    globalThis.fetch = mockFetch;
+
+    const exporter = new OTLPExporter();
+    const span = createSpan({
+      traceId: 'trace-ns',
+      name: 'ns.test',
+      startTime: 1700000000.123,
+      spanId: 'span-ns',
+    });
+    span.endTime = 1700000002.456;
+    exporter.export(span);
+
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const exportedSpan = body.resourceSpans[0].scopeSpans[0].spans[0];
+
+    // startTime 1700000000.123 * 1_000_000_000 = 1700000000123000000
+    const expectedStartNano = String(Math.round(1700000000.123 * 1_000_000_000));
+    expect(exportedSpan.startTimeUnixNano).toBe(expectedStartNano);
+
+    // endTime 1700000002.456 * 1_000_000_000 = 1700000002456000000
+    const expectedEndNano = String(Math.round(1700000002.456 * 1_000_000_000));
+    expect(exportedSpan.endTimeUnixNano).toBe(expectedEndNano);
+  });
+
+  it('omits endTimeUnixNano when endTime is null', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(new Response('ok'));
+    globalThis.fetch = mockFetch;
+
+    const exporter = new OTLPExporter();
+    const span = createSpan({
+      traceId: 'trace-no-end',
+      name: 'no.end',
+      startTime: 1700000000,
+      spanId: 'span-no-end',
+    });
+    // endTime is null by default
+    exporter.export(span);
+
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const exportedSpan = body.resourceSpans[0].scopeSpans[0].spans[0];
+
+    expect(exportedSpan.startTimeUnixNano).toBe(String(Math.round(1700000000 * 1_000_000_000)));
+    expect(exportedSpan.endTimeUnixNano).toBeUndefined();
   });
 });

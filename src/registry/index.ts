@@ -1,4 +1,5 @@
 export { Registry } from './registry.js';
+export type { Discoverer, ModuleValidator } from './registry.js';
 export type { ModuleDescriptor, DiscoveredModule, DependencyInfo } from './types.js';
 export { validateModule } from './validation.js';
 export { resolveDependencies } from './dependencies.js';

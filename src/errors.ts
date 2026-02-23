@@ -420,6 +420,10 @@ export const ErrorCodes = Object.freeze({
   BINDING_FILE_INVALID: "BINDING_FILE_INVALID",
   CIRCULAR_DEPENDENCY: "CIRCULAR_DEPENDENCY",
   MIDDLEWARE_CHAIN_ERROR: "MIDDLEWARE_CHAIN_ERROR",
+  // Forward declarations for Level 2 Phase 2 features.
+  // Exception classes will be added when the corresponding features are implemented.
+  GENERAL_NOT_IMPLEMENTED: "GENERAL_NOT_IMPLEMENTED",
+  DEPENDENCY_NOT_FOUND: "DEPENDENCY_NOT_FOUND",
 } as const);
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

@@ -10,6 +10,7 @@ import { Value } from '@sinclair/typebox/value';
 import type { ACL } from './acl.js';
 import type { Config } from './config.js';
 import { Context } from './context.js';
+import { ExecutionCancelledError } from './cancel.js';
 import {
   ACLDeniedError,
   CallDepthExceededError,
@@ -132,6 +133,11 @@ export class Executor {
     return this._middlewareManager.snapshot();
   }
 
+  /** Set the access control provider. */
+  setAcl(acl: ACL): void {
+    this._acl = acl;
+  }
+
   use(middleware: Middleware): Executor {
     this._middlewareManager.add(middleware);
     return this;
@@ -236,6 +242,11 @@ export class Executor {
         throw e;
       }
 
+      // Cancel check before execution
+      if (ctx.cancelToken !== null) {
+        ctx.cancelToken.check();
+      }
+
       const streamFn = mod['stream'] as
         | ((inputs: Record<string, unknown>, context: Context) => AsyncGenerator<Record<string, unknown>>)
         | undefined;
@@ -261,6 +272,7 @@ export class Executor {
         yield output;
       }
     } catch (exc) {
+      if (exc instanceof ExecutionCancelledError) throw exc;
       if (executedMiddlewares.length > 0) {
         const recovery = this._middlewareManager.executeOnError(
           moduleId, effectiveInputs, exc as Error, ctx, executedMiddlewares,
@@ -357,6 +369,11 @@ export class Executor {
         throw e;
       }
 
+      // Cancel check before execution
+      if (ctx.cancelToken !== null) {
+        ctx.cancelToken.check();
+      }
+
       let output = await this._executeWithTimeout(mod, moduleId, effectiveInputs, ctx);
 
       this._validateOutput(mod, output);
@@ -364,6 +381,7 @@ export class Executor {
       output = this._middlewareManager.executeAfter(moduleId, effectiveInputs, output, ctx);
       return output;
     } catch (exc) {
+      if (exc instanceof ExecutionCancelledError) throw exc;
       if (executedMiddlewares.length > 0) {
         const recovery = this._middlewareManager.executeOnError(
           moduleId, effectiveInputs, exc as Error, ctx, executedMiddlewares,

@@ -11,7 +11,7 @@ export class MiddlewareChainError extends ModuleError {
   readonly executedMiddlewares: Middleware[];
 
   constructor(original: Error, executedMiddlewares: Middleware[]) {
-    super('MIDDLEWARE_CHAIN_ERROR', String(original));
+    super('MIDDLEWARE_CHAIN_ERROR', String(original), undefined, original);
     this.name = 'MiddlewareChainError';
     this.original = original;
     this.executedMiddlewares = executedMiddlewares;

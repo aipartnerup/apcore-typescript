@@ -149,3 +149,118 @@ describe('Context.child()', () => {
     expect(parent.callChain).toEqual(chainBefore);
   });
 });
+
+describe('Context.toJSON() / Context.fromJSON()', () => {
+  it('round-trips context with identity', () => {
+    const identity = createIdentity('user-42', 'admin', ['superuser', 'editor'], { org: 'acme' });
+    const executor = { name: 'test-executor' };
+    const original = new Context(
+      'trace-abc',
+      'caller-1',
+      ['mod.a', 'mod.b'],
+      executor,
+      identity,
+      { password: '***' },
+      { transient: 'value' },
+    );
+
+    const serialized = original.toJSON();
+    const restored = Context.fromJSON(serialized);
+
+    expect(restored.traceId).toBe(original.traceId);
+    expect(restored.callerId).toBe(original.callerId);
+    expect(restored.callChain).toEqual(['mod.a', 'mod.b']);
+    expect(restored.identity).not.toBeNull();
+    expect(restored.identity!.id).toBe('user-42');
+    expect(restored.identity!.type).toBe('admin');
+    expect([...restored.identity!.roles]).toEqual(['superuser', 'editor']);
+    expect({ ...restored.identity!.attrs }).toEqual({ org: 'acme' });
+    expect(restored.redactedInputs).toEqual({ password: '***' });
+    expect(restored.data).toEqual({ transient: 'value' });
+  });
+
+  it('round-trips context without identity', () => {
+    const original = new Context('trace-xyz', null, [], null, null, null);
+    const serialized = original.toJSON();
+    const restored = Context.fromJSON(serialized);
+
+    expect(restored.traceId).toBe('trace-xyz');
+    expect(restored.callerId).toBeNull();
+    expect(restored.callChain).toEqual([]);
+    expect(restored.identity).toBeNull();
+    expect(restored.redactedInputs).toBeNull();
+  });
+
+  it('excludes executor from toJSON output but includes data', () => {
+    const ctx = new Context('trace-1', null, [], 'my-executor', null, null, { key: 'included' });
+    const serialized = ctx.toJSON();
+
+    expect(serialized).not.toHaveProperty('executor');
+    expect(serialized).toHaveProperty('data');
+    expect(serialized.data).toEqual({ key: 'included' });
+  });
+
+  it('re-injects executor via fromJSON', () => {
+    const ctx = new Context('trace-2', null, [], 'original-exec');
+    const serialized = ctx.toJSON();
+    const newExecutor = { name: 'new-executor' };
+    const restored = Context.fromJSON(serialized, newExecutor);
+
+    expect(restored.executor).toBe(newExecutor);
+  });
+
+  it('defaults executor to null when not provided to fromJSON', () => {
+    const serialized = { traceId: 't1', callerId: null, callChain: [], identity: null, redactedInputs: null };
+    const restored = Context.fromJSON(serialized);
+    expect(restored.executor).toBeNull();
+  });
+
+  it('toJSON returns copies, not references', () => {
+    const identity = createIdentity('u1', 'user', ['r1'], { k: 'v' });
+    const ctx = new Context('t1', null, ['a', 'b'], null, identity, { field: 'val' }, { shared: true });
+    const serialized = ctx.toJSON();
+
+    // Mutate serialized copies
+    (serialized.callChain as string[]).push('mutated');
+    (serialized.identity as Record<string, unknown>).id = 'mutated';
+    (serialized.redactedInputs as Record<string, unknown>).extra = true;
+    (serialized.data as Record<string, unknown>).extra = true;
+
+    // Originals unchanged
+    expect(ctx.callChain).toEqual(['a', 'b']);
+    expect(ctx.identity!.id).toBe('u1');
+    expect(ctx.redactedInputs).toEqual({ field: 'val' });
+    expect(ctx.data).toEqual({ shared: true });
+  });
+
+  it('toJSON excludes internal keys starting with _', () => {
+    const ctx = Context.create();
+    ctx.data['visible'] = 'yes';
+    ctx.data['_tracing_spans'] = [1, 2, 3];
+    ctx.data['_internal'] = 42;
+    const serialized = ctx.toJSON();
+    const data = serialized.data as Record<string, unknown>;
+    expect(data['visible']).toBe('yes');
+    expect(data['_tracing_spans']).toBeUndefined();
+    expect(data['_internal']).toBeUndefined();
+  });
+
+  it('fromJSON handles null roles and attrs gracefully', () => {
+    const json = {
+      traceId: 'test-id',
+      callerId: null,
+      callChain: [],
+      identity: {
+        id: 'user-1',
+        type: 'user',
+        roles: null,
+        attrs: null,
+      },
+      data: {},
+    };
+    const ctx = Context.fromJSON(json);
+    expect(ctx.identity).toBeDefined();
+    expect(ctx.identity!.roles).toEqual([]);
+    expect(ctx.identity!.attrs).toEqual({});
+  });
+});
