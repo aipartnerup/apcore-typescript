@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Version aligned with apcore-python** — Bumped to 0.6.0 for cross-language version consistency.
 - Package size reduced from 192.6 kB (source-only, broken) to 86.3 kB (compiled, working).
+- **Full browser / frontend compatibility** — All `node:fs` and `node:path` imports across 7 source files (`acl.ts`, `bindings.ts`, `schema/loader.ts`, `schema/ref-resolver.ts`, `registry/metadata.ts`, `registry/scanner.ts`, `registry/registry.ts`) converted from static top-level imports to lazy-load via ESM top-level `await import()` with `try/catch`. Importing any module from `apcore-js` in a browser bundler no longer crashes at parse time.
+- **`node:crypto` removed** — `trace-context.ts` and `observability/tracing.ts` now use a new `randomHex()` utility based on the Web Crypto API (`globalThis.crypto.getRandomValues()`), compatible with Node 18+ and all modern browsers.
+- **`process.stdout` / `process.stderr` removed** — `StdoutExporter` uses `console.info()`, `ContextLogger` default output uses `console.error()` for universal runtime compatibility.
+- `Registry.watch()` signature changed from `watch(): void` to `async watch(): Promise<void>` (backward-compatible — existing fire-and-forget calls still work).
+- Added `"sideEffects": false` to `package.json` to enable bundler tree-shaking of Node.js-only code paths.
+
+### Added (new in browser-compat)
+- `randomHex(byteLength: number): string` utility function in `utils/index.ts` — generates hex strings using Web Crypto API, replacing `node:crypto.randomBytes`.
+- **Browser compatibility test suite** (`tests/test-browser-compat.test.ts`) — 26 tests across 4 groups:
+  - Module import health (8 tests) — all lazy-load modules importable
+  - Pure-logic APIs without filesystem (10 tests) — ACL, metadata, jsonSchemaToTypeBox, RefResolver inline $ref, Registry register/get/event
+  - Filesystem-dependent APIs in Node.js (5 tests) — ACL.load, loadMetadata, scanExtensions, SchemaLoader, RefResolver with lazy-loaded fs/path
+  - Source file guard (1 test) — scans all 10 refactored files to assert zero static `node:` imports
 
 ## [0.5.0] - 2026-02-23
 
