@@ -2,9 +2,9 @@
  * W3C Trace Context support: TraceParent parsing and TraceContext injection/extraction.
  */
 
-import { randomBytes } from 'node:crypto';
 import type { Context } from './context.js';
 import type { Span } from './observability/tracing.js';
+import { randomHex } from './utils/index.js';
 
 const TRACEPARENT_RE = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
 
@@ -32,7 +32,7 @@ export class TraceContext {
     if (spansStack && spansStack.length > 0) {
       parentId = spansStack[spansStack.length - 1].spanId;
     } else {
-      parentId = randomBytes(8).toString('hex');
+      parentId = randomHex(8);
     }
 
     const traceparent = `00-${traceIdHex}-${parentId}-01`;

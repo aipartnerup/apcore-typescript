@@ -2,9 +2,9 @@
  * Tracing system: Span, SpanExporter implementations, and TracingMiddleware.
  */
 
-import { randomBytes } from 'node:crypto';
 import type { Context } from '../context.js';
 import { Middleware } from '../middleware/base.js';
+import { randomHex } from '../utils/index.js';
 
 export interface Span {
   traceId: string;
@@ -30,7 +30,7 @@ export function createSpan(options: {
     traceId: options.traceId,
     name: options.name,
     startTime: options.startTime,
-    spanId: options.spanId ?? randomBytes(8).toString('hex'),
+    spanId: options.spanId ?? randomHex(8),
     parentSpanId: options.parentSpanId ?? null,
     attributes: options.attributes ?? {},
     endTime: null,
@@ -45,7 +45,8 @@ export interface SpanExporter {
 
 export class StdoutExporter implements SpanExporter {
   export(span: Span): void {
-    process.stdout.write(JSON.stringify(span) + '\n');
+    // Use console.info for universal compatibility (Node.js + browser)
+    console.info(JSON.stringify(span));
   }
 }
 

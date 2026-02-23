@@ -43,7 +43,8 @@ export class ContextLogger {
     this._level = options?.level ?? 'info';
     this._levelValue = LEVELS[this._level] ?? 20;
     this._redactSensitive = options?.redactSensitive ?? true;
-    this._output = options?.output ?? { write: (s: string) => process.stderr.write(s) };
+    // Default output uses console.error for universal compatibility (Node.js + browser)
+    this._output = options?.output ?? { write: (s: string) => console.error(s) };
   }
 
   static fromContext(context: Context, name: string, options?: {

@@ -2,17 +2,60 @@
  * Central module registry for discovering, registering, and querying modules.
  */
 
-import { watch as fsWatch, accessSync } from 'node:fs';
-import { resolve, join, basename, extname } from 'node:path';
 import type { Config } from '../config.js';
 import { InvalidInputError, ModuleNotFoundError } from '../errors.js';
 import type { ModuleAnnotations, ModuleExample } from '../module.js';
 import { resolveDependencies } from './dependencies.js';
 import { resolveEntryPoint } from './entry-point.js';
-import { loadIdMap, loadMetadata, mergeModuleMetadata, parseDependencies } from './metadata.js';
-import { scanExtensions, scanMultiRoot } from './scanner.js';
+import { mergeModuleMetadata, parseDependencies } from './metadata.js';
 import type { DependencyInfo, ModuleDescriptor } from './types.js';
 import { validateModule } from './validation.js';
+
+// ── Lazy-loaded Node.js modules ────────────────────────────────────
+// These are loaded on first use so that importing Registry in a browser
+// bundler does not fail at parse time. Only the filesystem-dependent
+// methods (discover, watch, constructor with idMapPath) trigger the load.
+// We use dynamic import() to avoid any top-level reference to node: modules.
+
+let _nodeFs: typeof import('node:fs') | null = null;
+let _nodePath: typeof import('node:path') | null = null;
+
+async function ensureNodeModules(): Promise<{
+  fs: typeof import('node:fs');
+  path: typeof import('node:path');
+}> {
+  if (_nodeFs === null) {
+    _nodeFs = await import('node:fs');
+  }
+  if (_nodePath === null) {
+    _nodePath = await import('node:path');
+  }
+  return { fs: _nodeFs, path: _nodePath };
+}
+
+async function lazyLoadIdMap(idMapPath: string): Promise<Record<string, Record<string, unknown>>> {
+  const { loadIdMap } = await import('./metadata.js');
+  return loadIdMap(idMapPath);
+}
+
+async function lazyLoadMetadata(metaPath: string): Promise<Record<string, unknown>> {
+  const { loadMetadata } = await import('./metadata.js');
+  return loadMetadata(metaPath);
+}
+
+async function lazyScanExtensions(
+  root: string, maxDepth: number, followSymlinks: boolean,
+): Promise<import('./types.js').DiscoveredModule[]> {
+  const { scanExtensions } = await import('./scanner.js');
+  return scanExtensions(root, maxDepth, followSymlinks);
+}
+
+async function lazyScanMultiRoot(
+  roots: Array<Record<string, unknown>>, maxDepth: number, followSymlinks: boolean,
+): Promise<import('./types.js').DiscoveredModule[]> {
+  const { scanMultiRoot } = await import('./scanner.js');
+  return scanMultiRoot(roots, maxDepth, followSymlinks);
+}
 
 /**
  * Standard registry event names.
@@ -69,6 +112,8 @@ export class Registry {
   private _debounceTimers?: Map<string, number>;
   private _customDiscoverer: Discoverer | null = null;
   private _customValidator: ModuleValidator | null = null;
+  private _idMapPath: string | null = null;
+  private _idMapLoaded = false;
 
   constructor(options?: {
     config?: Config | null;
@@ -79,7 +124,6 @@ export class Registry {
     const config = options?.config ?? null;
     const extensionsDir = options?.extensionsDir ?? null;
     const extensionsDirs = options?.extensionsDirs ?? null;
-    const idMapPath = options?.idMapPath ?? null;
 
     if (extensionsDir !== null && extensionsDirs !== null) {
       throw new InvalidInputError('Cannot specify both extensionsDir and extensionsDirs');
@@ -99,10 +143,14 @@ export class Registry {
     }
 
     this._config = config;
+    this._idMapPath = options?.idMapPath ?? null;
+  }
 
-    if (idMapPath !== null) {
-      this._idMap = loadIdMap(idMapPath);
-    }
+  /** Lazily load the ID map from disk on first discover(). */
+  private async _ensureIdMap(): Promise<void> {
+    if (this._idMapLoaded || this._idMapPath === null) return;
+    this._idMap = await lazyLoadIdMap(this._idMapPath);
+    this._idMapLoaded = true;
   }
 
   setDiscoverer(discoverer: Discoverer): void {
@@ -151,10 +199,11 @@ export class Registry {
   }
 
   private async _discoverDefault(): Promise<number> {
-    const discovered = this._scanRoots();
-    this._applyIdMapOverrides(discovered);
+    await this._ensureIdMap();
+    const discovered = await this._scanRoots();
+    await this._applyIdMapOverrides(discovered);
 
-    const rawMetadata = this._loadAllMetadata(discovered);
+    const rawMetadata = await this._loadAllMetadata(discovered);
     const resolvedModules = await this._resolveAllEntryPoints(discovered, rawMetadata);
     const validModules = await this._validateAll(resolvedModules);
     const loadOrder = this._resolveLoadOrder(validModules, rawMetadata);
@@ -162,7 +211,7 @@ export class Registry {
     return this._registerInOrder(loadOrder, validModules, rawMetadata);
   }
 
-  private _scanRoots(): import('./types.js').DiscoveredModule[] {
+  private async _scanRoots(): Promise<import('./types.js').DiscoveredModule[]> {
     let maxDepth = 8;
     let followSymlinks = false;
     if (this._config !== null) {
@@ -172,15 +221,16 @@ export class Registry {
 
     const hasNamespace = this._extensionRoots.some((r) => 'namespace' in r);
     if (this._extensionRoots.length > 1 || hasNamespace) {
-      return scanMultiRoot(this._extensionRoots, maxDepth, followSymlinks);
+      return lazyScanMultiRoot(this._extensionRoots, maxDepth, followSymlinks);
     }
-    return scanExtensions(this._extensionRoots[0]['root'] as string, maxDepth, followSymlinks);
+    return lazyScanExtensions(this._extensionRoots[0]['root'] as string, maxDepth, followSymlinks);
   }
 
-  private _applyIdMapOverrides(discovered: import('./types.js').DiscoveredModule[]): void {
+  private async _applyIdMapOverrides(discovered: import('./types.js').DiscoveredModule[]): Promise<void> {
     if (Object.keys(this._idMap).length === 0) return;
 
-    const resolvedRoots = this._extensionRoots.map((r) => resolve(r['root'] as string));
+    const { path: nodePath } = await ensureNodeModules();
+    const resolvedRoots = this._extensionRoots.map((r) => nodePath.resolve(r['root'] as string));
     for (const dm of discovered) {
       for (const root of resolvedRoots) {
         try {
@@ -199,12 +249,12 @@ export class Registry {
     }
   }
 
-  private _loadAllMetadata(
+  private async _loadAllMetadata(
     discovered: import('./types.js').DiscoveredModule[],
-  ): Map<string, Record<string, unknown>> {
+  ): Promise<Map<string, Record<string, unknown>>> {
     const rawMetadata = new Map<string, Record<string, unknown>>();
     for (const dm of discovered) {
-      rawMetadata.set(dm.canonicalId, dm.metaPath ? loadMetadata(dm.metaPath) : {});
+      rawMetadata.set(dm.canonicalId, dm.metaPath ? await lazyLoadMetadata(dm.metaPath) : {});
     }
     return rawMetadata;
   }
@@ -486,10 +536,13 @@ export class Registry {
     }
   }
 
-  watch(): void {
+  async watch(): Promise<void> {
     if (this._watchers && this._watchers.length > 0) {
       return; // Already watching
     }
+
+    const { fs, path: nodePath } = await ensureNodeModules();
+    const { join } = nodePath;
 
     this._watchers = [];
     this._debounceTimers = new Map<string, number>();
@@ -499,7 +552,7 @@ export class Registry {
       if (!rootPath) continue;
 
       try {
-        const watcher = fsWatch(rootPath, { recursive: true }, (eventType: string, filename: string | null) => {
+        const watcher = fs.watch(rootPath, { recursive: true }, (eventType: string, filename: string | null) => {
           if (!filename) return;
           if (!filename.endsWith(".ts") && !filename.endsWith(".js")) return;
 
@@ -512,7 +565,7 @@ export class Registry {
           if (eventType === "rename") {
             // Could be create or delete
             try {
-              accessSync(fullPath);
+              fs.accessSync(fullPath);
               this._handleFileChange(fullPath);
             } catch {
               this._handleFileDeletion(fullPath);
@@ -538,7 +591,9 @@ export class Registry {
     this._debounceTimers = undefined;
   }
 
-  private _handleFileChange(filePath: string): void {
+  private async _handleFileChange(filePath: string): Promise<void> {
+    const { path: nodePath } = await ensureNodeModules();
+    const { basename, extname } = nodePath;
     const moduleId = this._pathToModuleId(filePath);
 
     if (moduleId && this.has(moduleId)) {
@@ -553,7 +608,7 @@ export class Registry {
     this._triggerEvent("register", moduleId ?? basename(filePath, extname(filePath)), null);
   }
 
-  private _handleFileDeletion(path: string): void {
+  private async _handleFileDeletion(path: string): Promise<void> {
     const moduleId = this._pathToModuleId(path);
     if (moduleId && this.has(moduleId)) {
       const module = this.get(moduleId) as Record<string, unknown> | null;
@@ -565,6 +620,8 @@ export class Registry {
   }
 
   private _pathToModuleId(filePath: string): string | null {
+    // _nodePath is guaranteed loaded when this is called from watch/handleFile*
+    const { basename, extname } = _nodePath!;
     const base = basename(filePath, extname(filePath));
     for (const mid of this.moduleIds) {
       if (mid.endsWith(base) || mid === base) {

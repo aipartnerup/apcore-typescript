@@ -2,11 +2,15 @@
  * $ref resolution for JSON Schema documents following Algorithm A05.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
 import yaml from 'js-yaml';
 import { SchemaCircularRefError, SchemaNotFoundError, SchemaParseError } from '../errors.js';
 import { deepCopy } from '../utils/index.js';
+
+// Lazy-load Node.js built-in modules for browser compatibility
+let _nodeFs: typeof import('node:fs') | null = null;
+let _nodePath: typeof import('node:path') | null = null;
+try { _nodeFs = await import('node:fs'); } catch { /* browser environment */ }
+try { _nodePath = await import('node:path'); } catch { /* browser environment */ }
 
 const INLINE_SENTINEL = '__inline__';
 
@@ -16,6 +20,7 @@ export class RefResolver {
   private _fileCache: Map<string, Record<string, unknown>> = new Map();
 
   constructor(schemasDir: string, maxDepth: number = 32) {
+    const { resolve } = _nodePath!;
     this._schemasDir = resolve(schemasDir);
     this._maxDepth = maxDepth;
   }
@@ -126,6 +131,7 @@ export class RefResolver {
   }
 
   private _parseRef(refString: string, currentFile: string | null): [string, string] {
+    const { resolve, dirname } = _nodePath!;
     if (refString.startsWith('#')) {
       const pointer = refString.slice(1);
       if (currentFile) return [currentFile, pointer];
@@ -159,6 +165,7 @@ export class RefResolver {
   }
 
   private _convertCanonicalToPath(uri: string): [string, string] {
+    const { resolve } = _nodePath!;
     const remainder = uri.slice('apcore://'.length);
     const parts = remainder.split('/');
     const canonicalId = parts[0];
@@ -201,6 +208,8 @@ export class RefResolver {
       return this._fileCache.get(INLINE_SENTINEL) ?? {};
     }
 
+    const { resolve } = _nodePath!;
+    const { existsSync, readFileSync } = _nodeFs!;
     const resolved = resolve(filePath);
     const cached = this._fileCache.get(resolved);
     if (cached !== undefined) return cached;

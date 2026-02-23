@@ -2,12 +2,16 @@
  * Metadata and ID map loading for the registry system.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
 import yaml from 'js-yaml';
 import { ConfigError, ConfigNotFoundError } from '../errors.js';
 import type { DependencyInfo } from './types.js';
 
+// Lazy-load Node.js built-in modules for browser compatibility
+let _nodeFs: typeof import('node:fs') | null = null;
+try { _nodeFs = await import('node:fs'); } catch { /* browser environment */ }
+
 export function loadMetadata(metaPath: string): Record<string, unknown> {
+  const { existsSync, readFileSync } = _nodeFs!;
   if (!existsSync(metaPath)) return {};
 
   const content = readFileSync(metaPath, 'utf-8');
@@ -74,6 +78,7 @@ export function mergeModuleMetadata(
 }
 
 export function loadIdMap(idMapPath: string): Record<string, Record<string, unknown>> {
+  const { existsSync, readFileSync } = _nodeFs!;
   if (!existsSync(idMapPath)) {
     throw new ConfigNotFoundError(idMapPath);
   }

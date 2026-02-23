@@ -5,8 +5,6 @@
  * the conversion layer is minimal.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
 import { Type, type TSchema } from '@sinclair/typebox';
 import yaml from 'js-yaml';
 import type { Config } from '../config.js';
@@ -14,6 +12,12 @@ import { SchemaNotFoundError, SchemaParseError } from '../errors.js';
 import { RefResolver } from './ref-resolver.js';
 import type { ResolvedSchema, SchemaDefinition } from './types.js';
 import { SchemaStrategy } from './types.js';
+
+// Lazy-load Node.js built-in modules for browser compatibility
+let _nodeFs: typeof import('node:fs') | null = null;
+let _nodePath: typeof import('node:path') | null = null;
+try { _nodeFs = await import('node:fs'); } catch { /* browser environment */ }
+try { _nodePath = await import('node:path'); } catch { /* browser environment */ }
 
 export class SchemaLoader {
   private _config: Config;
@@ -23,6 +27,7 @@ export class SchemaLoader {
   private _modelCache: Map<string, [ResolvedSchema, ResolvedSchema]> = new Map();
 
   constructor(config: Config, schemasDir?: string | null) {
+    const { resolve } = _nodePath!;
     this._config = config;
     if (schemasDir != null) {
       this._schemasDir = resolve(schemasDir);
@@ -37,6 +42,8 @@ export class SchemaLoader {
     const cached = this._schemaCache.get(moduleId);
     if (cached) return cached;
 
+    const { existsSync, readFileSync } = _nodeFs!;
+    const { join } = _nodePath!;
     const filePath = join(this._schemasDir, moduleId.replace(/\./g, '/') + '.schema.yaml');
     if (!existsSync(filePath)) {
       throw new SchemaNotFoundError(moduleId);

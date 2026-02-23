@@ -2,11 +2,14 @@
  * ACL (Access Control List) types and implementation for apcore.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
 import yaml from 'js-yaml';
 import type { Context } from './context.js';
 import { ACLRuleError, ConfigNotFoundError } from './errors.js';
 import { matchPattern } from './utils/pattern.js';
+
+// Lazy-load Node.js built-in modules for browser compatibility
+let _nodeFs: typeof import('node:fs') | null = null;
+try { _nodeFs = await import('node:fs'); } catch { /* browser environment */ }
 
 export interface ACLRule {
   callers: string[];
@@ -67,6 +70,7 @@ export class ACL {
   }
 
   static load(yamlPath: string): ACL {
+    const { existsSync, readFileSync } = _nodeFs!;
     if (!existsSync(yamlPath)) {
       throw new ConfigNotFoundError(yamlPath);
     }

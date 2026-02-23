@@ -16,6 +16,9 @@ import { readFileSync } from 'node:fs';
 const ROOT = resolve(import.meta.dirname, '..');
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8'));
 
+// Use a variable so TypeScript doesn't statically resolve the dist path during `tsc --noEmit`.
+const DIST_ENTRY = resolve(ROOT, 'dist', 'index.js');
+
 describe('package.json publishing config', () => {
   it('has "files" field that includes dist', () => {
     expect(pkg.files).toBeDefined();
@@ -59,13 +62,13 @@ describe('dist entry points exist', () => {
 
 describe('dist exports are loadable', () => {
   it('can import the package entry point', async () => {
-    const mod = await import('../dist/index.js');
+    const mod = await import(DIST_ENTRY);
     expect(mod).toBeDefined();
     expect(typeof mod).toBe('object');
   });
 
   it('exports key symbols', async () => {
-    const mod = await import('../dist/index.js');
+    const mod = await import(DIST_ENTRY);
     // Core classes/functions that consumers depend on
     expect(mod.Registry).toBeDefined();
     expect(mod.Executor).toBeDefined();
@@ -91,7 +94,7 @@ describe('dist exports are loadable', () => {
 
 describe('VERSION constant', () => {
   it('matches package.json version', async () => {
-    const mod = await import('../dist/index.js');
+    const mod = await import(DIST_ENTRY);
     expect(mod.VERSION).toBe(pkg.version);
   });
 });
