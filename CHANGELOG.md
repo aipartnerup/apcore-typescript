@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-02-23
+
+### Fixed
+- **Critical publishing bug** — Previous releases (0.1.0–0.5.0) shipped without `dist/` directory because `.gitignore` excluded `dist/` and npm fell back to it as the exclusion list (no `files` field or `.npmignore` existed). `require("apcore-js")` and `import("apcore-js")` would fail at runtime with "module not found". This is the first version where the package is actually usable from npm.
+- **VERSION constant out of sync** — `VERSION` export was stuck at `'0.3.0'` while `package.json` was at `0.5.0`.
+
+### Added
+- `"files": ["dist", "README.md"]` in `package.json` to restrict npm publish scope to compiled output only (previously published src/, tests/, planning/, .claude/, .github/ — 902 KB of dev files).
+- `"prepublishOnly": "pnpm run build"` script to ensure `tsc` runs before every `npm publish` / `pnpm publish`.
+- **Package integrity test suite** (`tests/test-package-integrity.test.ts`) — 10 tests that verify:
+  - `files` field configuration and exclusion of dev directories
+  - `prepublishOnly` script exists and invokes build
+  - All entry points (`main`, `types`, `exports`) resolve to files in `dist/`
+  - `dist/index.js` is importable and exports all 16+ core symbols
+  - `VERSION` constant matches `package.json` version
+
+### Changed
+- **Version aligned with apcore-python** — Bumped to 0.6.0 for cross-language version consistency.
+- Package size reduced from 192.6 kB (source-only, broken) to 86.3 kB (compiled, working).
+
 ## [0.5.0] - 2026-02-23
 
 ### Added
