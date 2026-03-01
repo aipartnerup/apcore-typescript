@@ -2,12 +2,27 @@
  * Error hierarchy for the apcore framework.
  */
 
+export interface ErrorOptions {
+  cause?: Error;
+  traceId?: string;
+  retryable?: boolean | null;
+  aiGuidance?: string | null;
+  userFixable?: boolean | null;
+  suggestion?: string | null;
+}
+
 export class ModuleError extends Error {
+  static readonly DEFAULT_RETRYABLE: boolean | null = null;
+
   readonly code: string;
   readonly details: Record<string, unknown>;
   override readonly cause?: Error;
   readonly traceId?: string;
   readonly timestamp: string;
+  readonly retryable: boolean | null;
+  readonly aiGuidance: string | null;
+  readonly userFixable: boolean | null;
+  readonly suggestion: string | null;
 
   constructor(
     code: string,
@@ -15,6 +30,10 @@ export class ModuleError extends Error {
     details?: Record<string, unknown>,
     cause?: Error,
     traceId?: string,
+    retryable?: boolean | null,
+    aiGuidance?: string | null,
+    userFixable?: boolean | null,
+    suggestion?: string | null,
   ) {
     super(message, cause ? { cause } : undefined);
     this.name = 'ModuleError';
@@ -23,48 +42,98 @@ export class ModuleError extends Error {
     this.cause = cause;
     this.traceId = traceId;
     this.timestamp = new Date().toISOString();
+    this.retryable = retryable !== undefined ? retryable : (this.constructor as typeof ModuleError).DEFAULT_RETRYABLE;
+    this.aiGuidance = aiGuidance ?? null;
+    this.userFixable = userFixable ?? null;
+    this.suggestion = suggestion ?? null;
   }
 
   override toString(): string {
     return `[${this.code}] ${this.message}`;
   }
+
+  toJSON(): Record<string, unknown> {
+    const obj: Record<string, unknown> = {
+      code: this.code,
+      message: this.message,
+    };
+    if (Object.keys(this.details).length > 0) {
+      obj.details = this.details;
+    }
+    if (this.cause !== undefined) {
+      obj.cause = String(this.cause);
+    }
+    if (this.traceId !== undefined) {
+      obj.trace_id = this.traceId;
+    }
+    obj.timestamp = this.timestamp;
+    if (this.retryable !== null) {
+      obj.retryable = this.retryable;
+    }
+    if (this.aiGuidance !== null) {
+      obj.ai_guidance = this.aiGuidance;
+    }
+    if (this.userFixable !== null) {
+      obj.user_fixable = this.userFixable;
+    }
+    if (this.suggestion !== null) {
+      obj.suggestion = this.suggestion;
+    }
+    return obj;
+  }
 }
 
 export class ConfigNotFoundError extends ModuleError {
-  constructor(configPath: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(configPath: string, options?: ErrorOptions) {
     super(
       'CONFIG_NOT_FOUND',
       `Configuration file not found: ${configPath}`,
       { configPath },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'ConfigNotFoundError';
   }
 }
 
 export class ConfigError extends ModuleError {
-  constructor(message: string, options?: { cause?: Error; traceId?: string }) {
-    super('CONFIG_INVALID', message, {}, options?.cause, options?.traceId);
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(message: string, options?: ErrorOptions) {
+    super('CONFIG_INVALID', message, {}, options?.cause, options?.traceId, options?.retryable, options?.aiGuidance, options?.userFixable, options?.suggestion);
     this.name = 'ConfigError';
   }
 }
 
 export class ACLRuleError extends ModuleError {
-  constructor(message: string, options?: { cause?: Error; traceId?: string }) {
-    super('ACL_RULE_ERROR', message, {}, options?.cause, options?.traceId);
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(message: string, options?: ErrorOptions) {
+    super('ACL_RULE_ERROR', message, {}, options?.cause, options?.traceId, options?.retryable, options?.aiGuidance, options?.userFixable, options?.suggestion);
     this.name = 'ACLRuleError';
   }
 }
 
 export class ACLDeniedError extends ModuleError {
-  constructor(callerId: string | null, targetId: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(callerId: string | null, targetId: string, options?: ErrorOptions) {
     super(
       'ACL_DENIED',
       `Access denied: ${callerId} -> ${targetId}`,
       { callerId, targetId },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'ACLDeniedError';
   }
@@ -79,26 +148,38 @@ export class ACLDeniedError extends ModuleError {
 }
 
 export class ModuleNotFoundError extends ModuleError {
-  constructor(moduleId: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(moduleId: string, options?: ErrorOptions) {
     super(
       'MODULE_NOT_FOUND',
       `Module not found: ${moduleId}`,
       { moduleId },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'ModuleNotFoundError';
   }
 }
 
 export class ModuleTimeoutError extends ModuleError {
-  constructor(moduleId: string, timeoutMs: number, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = true;
+
+  constructor(moduleId: string, timeoutMs: number, options?: ErrorOptions) {
     super(
       'MODULE_TIMEOUT',
       `Module ${moduleId} timed out after ${timeoutMs}ms`,
       { moduleId, timeoutMs },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'ModuleTimeoutError';
   }
@@ -113,10 +194,12 @@ export class ModuleTimeoutError extends ModuleError {
 }
 
 export class SchemaValidationError extends ModuleError {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
   constructor(
     message: string = 'Schema validation failed',
     errors?: Array<Record<string, unknown>>,
-    options?: { cause?: Error; traceId?: string },
+    options?: ErrorOptions,
   ) {
     super(
       'SCHEMA_VALIDATION_ERROR',
@@ -124,52 +207,76 @@ export class SchemaValidationError extends ModuleError {
       { errors: errors ?? [] },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'SchemaValidationError';
   }
 }
 
 export class SchemaNotFoundError extends ModuleError {
-  constructor(schemaId: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(schemaId: string, options?: ErrorOptions) {
     super(
       'SCHEMA_NOT_FOUND',
       `Schema not found: ${schemaId}`,
       { schemaId },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'SchemaNotFoundError';
   }
 }
 
 export class SchemaParseError extends ModuleError {
-  constructor(message: string, options?: { cause?: Error; traceId?: string }) {
-    super('SCHEMA_PARSE_ERROR', message, {}, options?.cause, options?.traceId);
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(message: string, options?: ErrorOptions) {
+    super('SCHEMA_PARSE_ERROR', message, {}, options?.cause, options?.traceId, options?.retryable, options?.aiGuidance, options?.userFixable, options?.suggestion);
     this.name = 'SchemaParseError';
   }
 }
 
 export class SchemaCircularRefError extends ModuleError {
-  constructor(refPath: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(refPath: string, options?: ErrorOptions) {
     super(
       'SCHEMA_CIRCULAR_REF',
       `Circular reference detected: ${refPath}`,
       { refPath },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'SchemaCircularRefError';
   }
 }
 
 export class CallDepthExceededError extends ModuleError {
-  constructor(depth: number, maxDepth: number, callChain: string[], options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(depth: number, maxDepth: number, callChain: string[], options?: ErrorOptions) {
     super(
       'CALL_DEPTH_EXCEEDED',
       `Call depth ${depth} exceeds maximum ${maxDepth}`,
       { depth, maxDepth, callChain },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'CallDepthExceededError';
   }
@@ -184,13 +291,19 @@ export class CallDepthExceededError extends ModuleError {
 }
 
 export class CircularCallError extends ModuleError {
-  constructor(moduleId: string, callChain: string[], options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(moduleId: string, callChain: string[], options?: ErrorOptions) {
     super(
       'CIRCULAR_CALL',
       `Circular call detected for module ${moduleId}`,
       { moduleId, callChain },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'CircularCallError';
   }
@@ -201,12 +314,14 @@ export class CircularCallError extends ModuleError {
 }
 
 export class CallFrequencyExceededError extends ModuleError {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
   constructor(
     moduleId: string,
     count: number,
     maxRepeat: number,
     callChain: string[],
-    options?: { cause?: Error; traceId?: string },
+    options?: ErrorOptions,
   ) {
     super(
       'CALL_FREQUENCY_EXCEEDED',
@@ -214,6 +329,10 @@ export class CallFrequencyExceededError extends ModuleError {
       { moduleId, count, maxRepeat, callChain },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'CallFrequencyExceededError';
   }
@@ -232,159 +351,298 @@ export class CallFrequencyExceededError extends ModuleError {
 }
 
 export class InvalidInputError extends ModuleError {
-  constructor(message: string = 'Invalid input', options?: { cause?: Error; traceId?: string }) {
-    super('GENERAL_INVALID_INPUT', message, {}, options?.cause, options?.traceId);
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(message: string = 'Invalid input', options?: ErrorOptions) {
+    super('GENERAL_INVALID_INPUT', message, {}, options?.cause, options?.traceId, options?.retryable, options?.aiGuidance, options?.userFixable, options?.suggestion);
     this.name = 'InvalidInputError';
   }
 }
 
 export class FuncMissingTypeHintError extends ModuleError {
-  constructor(functionName: string, parameterName: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(functionName: string, parameterName: string, options?: ErrorOptions) {
     super(
       'FUNC_MISSING_TYPE_HINT',
       `Parameter '${parameterName}' in function '${functionName}' has no type annotation. Add a type annotation like '${parameterName}: string'.`,
       { functionName, parameterName },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'FuncMissingTypeHintError';
   }
 }
 
 export class FuncMissingReturnTypeError extends ModuleError {
-  constructor(functionName: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(functionName: string, options?: ErrorOptions) {
     super(
       'FUNC_MISSING_RETURN_TYPE',
       `Function '${functionName}' has no return type annotation. Add a return type like ': Record<string, unknown>'.`,
       { functionName },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'FuncMissingReturnTypeError';
   }
 }
 
 export class BindingInvalidTargetError extends ModuleError {
-  constructor(target: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(target: string, options?: ErrorOptions) {
     super(
       'BINDING_INVALID_TARGET',
       `Invalid binding target '${target}'. Expected format: 'module.path:callable_name'.`,
       { target },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'BindingInvalidTargetError';
   }
 }
 
 export class BindingModuleNotFoundError extends ModuleError {
-  constructor(modulePath: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(modulePath: string, options?: ErrorOptions) {
     super(
       'BINDING_MODULE_NOT_FOUND',
       `Cannot import module '${modulePath}'.`,
       { modulePath },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'BindingModuleNotFoundError';
   }
 }
 
 export class BindingCallableNotFoundError extends ModuleError {
-  constructor(callableName: string, modulePath: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(callableName: string, modulePath: string, options?: ErrorOptions) {
     super(
       'BINDING_CALLABLE_NOT_FOUND',
       `Cannot find callable '${callableName}' in module '${modulePath}'.`,
       { callableName, modulePath },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'BindingCallableNotFoundError';
   }
 }
 
 export class BindingNotCallableError extends ModuleError {
-  constructor(target: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(target: string, options?: ErrorOptions) {
     super(
       'BINDING_NOT_CALLABLE',
       `Resolved target '${target}' is not callable.`,
       { target },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'BindingNotCallableError';
   }
 }
 
 export class BindingSchemaMissingError extends ModuleError {
-  constructor(target: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(target: string, options?: ErrorOptions) {
     super(
       'BINDING_SCHEMA_MISSING',
       `No schema available for target '${target}'. Add type hints or provide an explicit schema.`,
       { target },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'BindingSchemaMissingError';
   }
 }
 
 export class BindingFileInvalidError extends ModuleError {
-  constructor(filePath: string, reason: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(filePath: string, reason: string, options?: ErrorOptions) {
     super(
       'BINDING_FILE_INVALID',
       `Invalid binding file '${filePath}': ${reason}`,
       { filePath, reason },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'BindingFileInvalidError';
   }
 }
 
 export class CircularDependencyError extends ModuleError {
-  constructor(cyclePath: string[], options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(cyclePath: string[], options?: ErrorOptions) {
     super(
       'CIRCULAR_DEPENDENCY',
       `Circular dependency detected: ${cyclePath.join(' -> ')}`,
       { cyclePath },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'CircularDependencyError';
   }
 }
 
 export class ModuleLoadError extends ModuleError {
-  constructor(moduleId: string, reason: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(moduleId: string, reason: string, options?: ErrorOptions) {
     super(
       'MODULE_LOAD_ERROR',
       `Failed to load module '${moduleId}': ${reason}`,
       { moduleId, reason },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'ModuleLoadError';
   }
 }
 
 export class ModuleExecuteError extends ModuleError {
-  constructor(moduleId: string, reason: string, options?: { cause?: Error; traceId?: string }) {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = null;
+
+  constructor(moduleId: string, reason: string, options?: ErrorOptions) {
     super(
       'MODULE_EXECUTE_ERROR',
       `Failed to execute module '${moduleId}': ${reason}`,
       { moduleId, reason },
       options?.cause,
       options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
     );
     this.name = 'ModuleExecuteError';
   }
 }
 
 export class InternalError extends ModuleError {
-  constructor(message: string = 'Internal error', options?: { cause?: Error; traceId?: string }) {
-    super('GENERAL_INTERNAL_ERROR', message, {}, options?.cause, options?.traceId);
+  static override readonly DEFAULT_RETRYABLE: boolean | null = true;
+
+  constructor(message: string = 'Internal error', options?: ErrorOptions) {
+    super('GENERAL_INTERNAL_ERROR', message, {}, options?.cause, options?.traceId, options?.retryable, options?.aiGuidance, options?.userFixable, options?.suggestion);
     this.name = 'InternalError';
+  }
+}
+
+/**
+ * Base error for all approval-related errors.
+ * Carries the full ApprovalResult for inspection by callers.
+ */
+export class ApprovalError extends ModuleError {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  readonly result: unknown;
+
+  constructor(
+    code: string,
+    message: string,
+    result: unknown,
+    moduleId?: string,
+    options?: ErrorOptions,
+  ) {
+    super(code, message, { moduleId: moduleId ?? null }, options?.cause, options?.traceId, options?.retryable, options?.aiGuidance, options?.userFixable, options?.suggestion);
+    this.name = 'ApprovalError';
+    this.result = result;
+  }
+
+  get moduleId(): string | null {
+    return this.details['moduleId'] as string | null;
+  }
+
+  get reason(): string | null {
+    const r = this.result as Record<string, unknown> | null;
+    return (r?.['reason'] as string) ?? null;
+  }
+}
+
+export class ApprovalDeniedError extends ApprovalError {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(result: unknown, moduleId: string = '', options?: ErrorOptions) {
+    const reason = (result as Record<string, unknown>)?.['reason'] as string | undefined;
+    let msg = `Approval denied for module '${moduleId}'`;
+    if (reason) {
+      msg += `: ${reason}`;
+    }
+    super('APPROVAL_DENIED', msg, result, moduleId, options);
+    this.name = 'ApprovalDeniedError';
+  }
+}
+
+export class ApprovalTimeoutError extends ApprovalError {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = true;
+
+  constructor(result: unknown, moduleId: string = '', options?: ErrorOptions) {
+    super('APPROVAL_TIMEOUT', `Approval timed out for module '${moduleId}'`, result, moduleId, options);
+    this.name = 'ApprovalTimeoutError';
+  }
+}
+
+export class ApprovalPendingError extends ApprovalError {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(result: unknown, moduleId: string = '', options?: ErrorOptions) {
+    const approvalId = (result as Record<string, unknown>)?.['approvalId'] as string | undefined;
+    super('APPROVAL_PENDING', `Approval pending for module '${moduleId}'`, result, moduleId, options);
+    this.name = 'ApprovalPendingError';
+    this.details['approvalId'] = approvalId ?? null;
+  }
+
+  get approvalId(): string | null {
+    return this.details['approvalId'] as string | null;
   }
 }
 
@@ -420,6 +678,9 @@ export const ErrorCodes = Object.freeze({
   BINDING_FILE_INVALID: "BINDING_FILE_INVALID",
   CIRCULAR_DEPENDENCY: "CIRCULAR_DEPENDENCY",
   MIDDLEWARE_CHAIN_ERROR: "MIDDLEWARE_CHAIN_ERROR",
+  APPROVAL_DENIED: "APPROVAL_DENIED",
+  APPROVAL_TIMEOUT: "APPROVAL_TIMEOUT",
+  APPROVAL_PENDING: "APPROVAL_PENDING",
   // Forward declarations for Level 2 Phase 2 features.
   // Exception classes will be added when the corresponding features are implemented.
   GENERAL_NOT_IMPLEMENTED: "GENERAL_NOT_IMPLEMENTED",

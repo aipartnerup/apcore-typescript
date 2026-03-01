@@ -1,6 +1,6 @@
 {
   "name": "apcore-js",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "AI-Perceivable Core — schema-driven module development framework",
   "type": "module",
   "main": "./dist/index.js",
@@ -35,6 +35,21 @@
   "bugs": {
     "url": "https://github.com/aipartnerup/apcore-typescript/issues"
   },
+  "keywords": [
+    "apcore",
+    "ai",
+    "module",
+    "schema",
+    "framework",
+    "orchestration",
+    "llm",
+    "agent",
+    "json-schema",
+    "error-handling",
+    "middleware",
+    "approval",
+    "acl"
+  ],
   "license": "MIT",
   "dependencies": {
     "@sinclair/typebox": "^0.34.0",

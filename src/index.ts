@@ -17,6 +17,16 @@ export type { ModuleAnnotations, ModuleExample, ValidationResult, Module } from 
 // Config
 export { Config } from './config.js';
 
+// Approval
+export {
+  createApprovalRequest,
+  createApprovalResult,
+  AlwaysDenyHandler,
+  AutoApproveHandler,
+  CallbackApprovalHandler,
+} from './approval.js';
+export type { ApprovalRequest, ApprovalResult, ApprovalHandler } from './approval.js';
+
 // Errors
 export {
   ModuleError,
@@ -24,6 +34,10 @@ export {
   ConfigError,
   ACLRuleError,
   ACLDeniedError,
+  ApprovalError,
+  ApprovalDeniedError,
+  ApprovalTimeoutError,
+  ApprovalPendingError,
   ModuleNotFoundError,
   ModuleTimeoutError,
   SchemaValidationError,
@@ -48,7 +62,7 @@ export {
   InternalError,
   ErrorCodes,
 } from './errors.js';
-export type { ErrorCode } from './errors.js';
+export type { ErrorCode, ErrorOptions } from './errors.js';
 
 // ACL
 export { ACL } from './acl.js';
@@ -96,4 +110,4 @@ export { ContextLogger, ObsLoggingMiddleware } from './observability/context-log
 export { TraceContext } from './trace-context.js';
 export type { TraceParent } from './trace-context.js';
 
-export const VERSION = '0.6.0';
+export const VERSION = '0.7.0';

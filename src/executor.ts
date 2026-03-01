@@ -8,11 +8,16 @@
 import type { TSchema } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import type { ACL } from './acl.js';
+import type { ApprovalHandler, ApprovalRequest, ApprovalResult } from './approval.js';
+import { createApprovalRequest } from './approval.js';
 import type { Config } from './config.js';
 import { Context } from './context.js';
 import { ExecutionCancelledError } from './cancel.js';
 import {
   ACLDeniedError,
+  ApprovalDeniedError,
+  ApprovalPendingError,
+  ApprovalTimeoutError,
   CallDepthExceededError,
   CallFrequencyExceededError,
   CircularCallError,
@@ -23,7 +28,8 @@ import {
 } from './errors.js';
 import { AfterMiddleware, BeforeMiddleware, Middleware } from './middleware/index.js';
 import { MiddlewareChainError, MiddlewareManager } from './middleware/manager.js';
-import type { ValidationResult } from './module.js';
+import type { ModuleAnnotations, ValidationResult } from './module.js';
+import { DEFAULT_ANNOTATIONS } from './module.js';
 import type { Registry } from './registry/registry.js';
 
 export const REDACTED_VALUE: string = '***REDACTED***';
@@ -88,11 +94,28 @@ function redactSecretPrefix(data: Record<string, unknown>): void {
   }
 }
 
+/**
+ * Normalize a dict-form annotations object into a ModuleAnnotations interface.
+ * Handles both camelCase and snake_case keys (parallel to Python's
+ * ``ModuleAnnotations(**{k: v for k, v in annotations.items() if k in valid_fields})``).
+ */
+function dictToAnnotations(dict: Record<string, unknown>): ModuleAnnotations {
+  return {
+    readonly: Boolean(dict['readonly'] ?? false),
+    destructive: Boolean(dict['destructive'] ?? false),
+    idempotent: Boolean(dict['idempotent'] ?? false),
+    requiresApproval: Boolean(dict['requiresApproval'] ?? dict['requires_approval'] ?? false),
+    openWorld: Boolean(dict['openWorld'] ?? dict['open_world'] ?? true),
+    streaming: Boolean(dict['streaming'] ?? false),
+  };
+}
+
 export class Executor {
   private _registry: Registry;
   private _middlewareManager: MiddlewareManager;
   private _acl: ACL | null;
   private _config: Config | null;
+  private _approvalHandler: ApprovalHandler | null;
   private _defaultTimeout: number;
   private _maxCallDepth: number;
   private _maxModuleRepeat: number;
@@ -102,11 +125,13 @@ export class Executor {
     middlewares?: Middleware[] | null;
     acl?: ACL | null;
     config?: Config | null;
+    approvalHandler?: ApprovalHandler | null;
   }) {
     this._registry = options.registry;
     this._middlewareManager = new MiddlewareManager();
     this._acl = options.acl ?? null;
     this._config = options.config ?? null;
+    this._approvalHandler = options.approvalHandler ?? null;
 
     if (options.middlewares) {
       for (const mw of options.middlewares) {
@@ -136,6 +161,11 @@ export class Executor {
   /** Set the access control provider. */
   setAcl(acl: ACL): void {
     this._acl = acl;
+  }
+
+  /** Set the approval handler for Step 4.5 gate. */
+  setApprovalHandler(handler: ApprovalHandler): void {
+    this._approvalHandler = handler;
   }
 
   use(middleware: Middleware): Executor {
@@ -168,6 +198,9 @@ export class Executor {
 
     const mod = this._lookupModule(moduleId);
     this._checkAcl(moduleId, ctx);
+
+    // Step 4.5 -- Approval Gate
+    await this._checkApproval(mod, moduleId, effectiveInputs, ctx);
 
     effectiveInputs = this._validateInputs(mod, effectiveInputs, ctx);
 
@@ -208,6 +241,9 @@ export class Executor {
 
     const mod = this._lookupModule(moduleId);
     this._checkAcl(moduleId, ctx);
+
+    // Step 4.5 -- Approval Gate
+    await this._checkApproval(mod, moduleId, effectiveInputs, ctx);
 
     effectiveInputs = this._validateInputs(mod, effectiveInputs, ctx);
 
@@ -450,6 +486,109 @@ export class Executor {
     if (count > this._maxModuleRepeat) {
       throw new CallFrequencyExceededError(moduleId, count, this._maxModuleRepeat, [...callChain]);
     }
+  }
+
+  /** Check if a module requires approval, handling both interface and dict annotations. */
+  private _needsApproval(mod: Record<string, unknown>): boolean {
+    const annotations = mod['annotations'];
+    if (annotations == null) return false;
+    if (typeof annotations !== 'object') return false;
+    // ModuleAnnotations interface (camelCase)
+    if ('requiresApproval' in annotations) {
+      return Boolean((annotations as ModuleAnnotations).requiresApproval);
+    }
+    // Dict-form annotations (snake_case)
+    if ('requires_approval' in annotations) {
+      return Boolean((annotations as Record<string, unknown>)['requires_approval']);
+    }
+    return false;
+  }
+
+  /** Build an ApprovalRequest from module metadata. */
+  private _buildApprovalRequest(
+    mod: Record<string, unknown>,
+    moduleId: string,
+    inputs: Record<string, unknown>,
+    ctx: Context,
+  ): ApprovalRequest {
+    const annotations = mod['annotations'];
+    let ann: ModuleAnnotations;
+    if (annotations != null && typeof annotations === 'object' && 'requiresApproval' in annotations) {
+      ann = annotations as ModuleAnnotations;
+    } else if (annotations != null && typeof annotations === 'object') {
+      ann = dictToAnnotations(annotations as Record<string, unknown>);
+    } else {
+      ann = DEFAULT_ANNOTATIONS;
+    }
+
+    return createApprovalRequest({
+      moduleId,
+      arguments: inputs,
+      context: ctx,
+      annotations: ann,
+      description: (mod['description'] as string) ?? null,
+      tags: (mod['tags'] as string[]) ?? [],
+    });
+  }
+
+  /** Map an ApprovalResult status to the appropriate action or error. */
+  private _handleApprovalResult(result: ApprovalResult, moduleId: string): void {
+    if (result.status === 'approved') return;
+    if (result.status === 'rejected') {
+      throw new ApprovalDeniedError(result, moduleId);
+    }
+    if (result.status === 'timeout') {
+      throw new ApprovalTimeoutError(result, moduleId);
+    }
+    if (result.status === 'pending') {
+      throw new ApprovalPendingError(result, moduleId);
+    }
+    // Unknown status treated as denied
+    console.warn(`[apcore:executor] Unknown approval status '${result.status}' for module ${moduleId}, treating as denied`);
+    throw new ApprovalDeniedError(result, moduleId);
+  }
+
+  /** Emit an audit event for the approval decision (logging + span event). */
+  private _emitApprovalEvent(result: ApprovalResult, moduleId: string, ctx: Context): void {
+    console.info(
+      `[apcore:executor] Approval decision: module=${moduleId} status=${result.status} approved_by=${result.approvedBy} reason=${result.reason}`,
+    );
+
+    const spansStack = ctx.data['_tracing_spans'] as Array<{ events: Array<Record<string, unknown>> }> | undefined;
+    if (spansStack && spansStack.length > 0) {
+      spansStack[spansStack.length - 1].events.push({
+        name: 'approval_decision',
+        module_id: moduleId,
+        status: result.status,
+        approved_by: result.approvedBy ?? '',
+        reason: result.reason ?? '',
+        approval_id: result.approvalId ?? '',
+      });
+    }
+  }
+
+  /** Step 4.5: Approval gate. */
+  private async _checkApproval(
+    mod: Record<string, unknown>,
+    moduleId: string,
+    inputs: Record<string, unknown>,
+    ctx: Context,
+  ): Promise<void> {
+    if (this._approvalHandler === null) return;
+    if (!this._needsApproval(mod)) return;
+
+    let result: ApprovalResult;
+    if ('_approval_token' in inputs) {
+      const token = inputs['_approval_token'] as string;
+      delete inputs['_approval_token'];
+      result = await this._approvalHandler.checkApproval(token);
+    } else {
+      const request = this._buildApprovalRequest(mod, moduleId, inputs, ctx);
+      result = await this._approvalHandler.requestApproval(request);
+    }
+
+    this._emitApprovalEvent(result, moduleId, ctx);
+    this._handleApprovalResult(result, moduleId);
   }
 
   private async _executeWithTimeout(

@@ -7,6 +7,7 @@
  */
 
 import type { ACL } from './acl.js';
+import type { ApprovalHandler } from './approval.js';
 import type { Executor } from './executor.js';
 import { Middleware } from './middleware/index.js';
 import { TracingMiddleware } from './observability/tracing.js';
@@ -70,6 +71,13 @@ function isSpanExporter(value: unknown): value is SpanExporter {
   return typeof value === 'object' && value !== null && typeof (value as Record<string, unknown>)['export'] === 'function';
 }
 
+/** Type guard: checks if value has requestApproval and checkApproval methods. */
+function isApprovalHandler(value: unknown): value is ApprovalHandler {
+  if (typeof value !== 'object' || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  return typeof obj['requestApproval'] === 'function' && typeof obj['checkApproval'] === 'function';
+}
+
 type TypeChecker = (value: unknown) => boolean;
 
 interface InternalExtensionPoint extends ExtensionPoint {
@@ -114,14 +122,21 @@ function builtInPoints(): Map<string, InternalExtensionPoint> {
       typeCheck: isModuleValidator,
       typeName: 'ModuleValidator',
     }],
+    ['approval_handler', {
+      name: 'approval_handler',
+      description: 'Approval handler for Step 4.5 gate',
+      multiple: false,
+      typeCheck: isApprovalHandler,
+      typeName: 'ApprovalHandler',
+    }],
   ]);
 }
 
 /**
  * Manages extension points and their registered implementations.
  *
- * Pre-registers five built-in extension points: discoverer, middleware,
- * acl, span_exporter, and module_validator.
+ * Pre-registers six built-in extension points: discoverer, middleware,
+ * acl, span_exporter, module_validator, and approval_handler.
  */
 export class ExtensionManager {
   private _points: Map<string, InternalExtensionPoint>;
@@ -229,6 +244,12 @@ export class ExtensionManager {
     const acl = this.get('acl') as ACL | null;
     if (acl !== null) {
       executor.setAcl(acl);
+    }
+
+    // Approval handler
+    const approvalHandler = this.get('approval_handler') as ApprovalHandler | null;
+    if (approvalHandler !== null) {
+      executor.setApprovalHandler(approvalHandler);
     }
 
     // Middleware

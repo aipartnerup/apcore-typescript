@@ -27,8 +27,13 @@ import {
   BindingSchemaMissingError,
   BindingFileInvalidError,
   CircularDependencyError,
+  ApprovalError,
+  ApprovalDeniedError,
+  ApprovalTimeoutError,
+  ApprovalPendingError,
   ErrorCodes,
 } from '../src/errors.js';
+import type { ErrorOptions } from '../src/errors.js';
 
 describe('ModuleError', () => {
   it('creates with code and message', () => {
@@ -643,5 +648,278 @@ describe('ErrorCodes', () => {
 
   it('is frozen and cannot be mutated', () => {
     expect(Object.isFrozen(ErrorCodes)).toBe(true);
+  });
+});
+
+describe('AI Error Guidance Fields', () => {
+  describe('ModuleError base defaults', () => {
+    it('all AI fields default to null', () => {
+      const err = new ModuleError('TEST', 'test');
+      expect(err.retryable).toBeNull();
+      expect(err.aiGuidance).toBeNull();
+      expect(err.userFixable).toBeNull();
+      expect(err.suggestion).toBeNull();
+    });
+
+    it('accepts explicit AI fields', () => {
+      const err = new ModuleError(
+        'TEST', 'test', {}, undefined, undefined,
+        true, 'retry after delay', false, 'Wait and try again',
+      );
+      expect(err.retryable).toBe(true);
+      expect(err.aiGuidance).toBe('retry after delay');
+      expect(err.userFixable).toBe(false);
+      expect(err.suggestion).toBe('Wait and try again');
+    });
+
+    it('retryable can be set to false', () => {
+      const err = new ModuleError('TEST', 'test', {}, undefined, undefined, false);
+      expect(err.retryable).toBe(false);
+    });
+
+    it('retryable can be set to null', () => {
+      const err = new ModuleError('TEST', 'test', {}, undefined, undefined, null);
+      expect(err.retryable).toBeNull();
+    });
+  });
+
+  describe('toJSON sparse serialization', () => {
+    it('omits null AI fields', () => {
+      const err = new ModuleError('TEST', 'test');
+      const json = err.toJSON();
+      expect(json.code).toBe('TEST');
+      expect(json.message).toBe('test');
+      expect(json).toHaveProperty('timestamp');
+      expect(json).not.toHaveProperty('retryable');
+      expect(json).not.toHaveProperty('ai_guidance');
+      expect(json).not.toHaveProperty('user_fixable');
+      expect(json).not.toHaveProperty('suggestion');
+      expect(json).not.toHaveProperty('details');
+      expect(json).not.toHaveProperty('cause');
+      expect(json).not.toHaveProperty('trace_id');
+    });
+
+    it('includes non-null AI fields', () => {
+      const err = new ModuleError(
+        'TEST', 'test', {}, undefined, undefined,
+        false, 'do not retry', true, 'Fix input',
+      );
+      const json = err.toJSON();
+      expect(json.retryable).toBe(false);
+      expect(json.ai_guidance).toBe('do not retry');
+      expect(json.user_fixable).toBe(true);
+      expect(json.suggestion).toBe('Fix input');
+    });
+
+    it('includes details when non-empty', () => {
+      const err = new ModuleError('TEST', 'test', { key: 'val' });
+      const json = err.toJSON();
+      expect(json.details).toEqual({ key: 'val' });
+    });
+
+    it('includes cause as string', () => {
+      const cause = new Error('root');
+      const err = new ModuleError('TEST', 'test', {}, cause);
+      const json = err.toJSON();
+      expect(json.cause).toBe('Error: root');
+    });
+
+    it('includes trace_id when present', () => {
+      const err = new ModuleError('TEST', 'test', {}, undefined, 'trace-abc');
+      const json = err.toJSON();
+      expect(json.trace_id).toBe('trace-abc');
+    });
+  });
+
+  describe('DEFAULT_RETRYABLE per subclass', () => {
+    it('ModuleTimeoutError defaults to true', () => {
+      const err = new ModuleTimeoutError('m', 1000);
+      expect(err.retryable).toBe(true);
+    });
+
+    it('InternalError defaults to true', () => {
+      const err = new InternalError();
+      expect(err.retryable).toBe(true);
+    });
+
+    it('ApprovalTimeoutError defaults to true', () => {
+      const err = new ApprovalTimeoutError({}, 'm');
+      expect(err.retryable).toBe(true);
+    });
+
+    it('ModuleExecuteError defaults to null', () => {
+      const err = new ModuleExecuteError('m', 'fail');
+      expect(err.retryable).toBeNull();
+    });
+
+    it.each([
+      ['ConfigNotFoundError', () => new ConfigNotFoundError('/cfg')],
+      ['ConfigError', () => new ConfigError('bad')],
+      ['ACLRuleError', () => new ACLRuleError('bad')],
+      ['ACLDeniedError', () => new ACLDeniedError('a', 'b')],
+      ['ApprovalDeniedError', () => new ApprovalDeniedError({}, 'm')],
+      ['ApprovalPendingError', () => new ApprovalPendingError({}, 'm')],
+      ['ModuleNotFoundError', () => new ModuleNotFoundError('m')],
+      ['SchemaValidationError', () => new SchemaValidationError()],
+      ['SchemaNotFoundError', () => new SchemaNotFoundError('s')],
+      ['SchemaParseError', () => new SchemaParseError('bad')],
+      ['SchemaCircularRefError', () => new SchemaCircularRefError('#/a')],
+      ['CallDepthExceededError', () => new CallDepthExceededError(5, 4, ['a'])],
+      ['CircularCallError', () => new CircularCallError('m', ['m'])],
+      ['CallFrequencyExceededError', () => new CallFrequencyExceededError('m', 4, 3, ['m'])],
+      ['InvalidInputError', () => new InvalidInputError()],
+      ['FuncMissingTypeHintError', () => new FuncMissingTypeHintError('f', 'p')],
+      ['FuncMissingReturnTypeError', () => new FuncMissingReturnTypeError('f')],
+      ['BindingInvalidTargetError', () => new BindingInvalidTargetError('t')],
+      ['BindingModuleNotFoundError', () => new BindingModuleNotFoundError('m')],
+      ['BindingCallableNotFoundError', () => new BindingCallableNotFoundError('c', 'm')],
+      ['BindingNotCallableError', () => new BindingNotCallableError('t')],
+      ['BindingSchemaMissingError', () => new BindingSchemaMissingError('t')],
+      ['BindingFileInvalidError', () => new BindingFileInvalidError('/f', 'bad')],
+      ['CircularDependencyError', () => new CircularDependencyError(['a', 'b'])],
+      ['ModuleLoadError', () => new ModuleLoadError('m', 'fail')],
+    ] as const)('%s defaults to false', (_name, factory) => {
+      const err = factory();
+      expect(err.retryable).toBe(false);
+    });
+  });
+
+  describe('subclass override via options', () => {
+    it('overrides retryable on non-retryable subclass', () => {
+      const err = new ConfigNotFoundError('/cfg', { retryable: true });
+      expect(err.retryable).toBe(true);
+    });
+
+    it('overrides retryable to false on retryable subclass', () => {
+      const err = new ModuleTimeoutError('m', 1000, { retryable: false });
+      expect(err.retryable).toBe(false);
+    });
+
+    it('passes aiGuidance and suggestion via options', () => {
+      const err = new SchemaValidationError('bad', [], {
+        aiGuidance: 'check schema',
+        suggestion: 'Fix input',
+      });
+      expect(err.aiGuidance).toBe('check schema');
+      expect(err.suggestion).toBe('Fix input');
+    });
+
+    it('passes userFixable via options', () => {
+      const err = new ACLDeniedError('a', 'b', { userFixable: true });
+      expect(err.userFixable).toBe(true);
+    });
+
+    it('ApprovalDeniedError with AI fields', () => {
+      const err = new ApprovalDeniedError({}, 'm', {
+        retryable: true,
+        aiGuidance: 'request with different user',
+        userFixable: true,
+        suggestion: 'Ask admin',
+      });
+      expect(err.retryable).toBe(true);
+      expect(err.aiGuidance).toBe('request with different user');
+      expect(err.userFixable).toBe(true);
+      expect(err.suggestion).toBe('Ask admin');
+    });
+  });
+
+  describe('backward compatibility', () => {
+    it('existing ModuleError positional args still work', () => {
+      const err = new ModuleError('CODE', 'msg', { k: 'v' }, new Error('c'), 'trace-1');
+      expect(err.code).toBe('CODE');
+      expect(err.details).toEqual({ k: 'v' });
+      expect(err.traceId).toBe('trace-1');
+      expect(err.retryable).toBeNull();
+    });
+
+    it('existing subclass calls without options still work', () => {
+      const err = new ConfigNotFoundError('/path');
+      expect(err.code).toBe('CONFIG_NOT_FOUND');
+      expect(err.retryable).toBe(false);
+      expect(err.aiGuidance).toBeNull();
+    });
+
+    it('subclass with cause/traceId options still work', () => {
+      const cause = new Error('root');
+      const err = new ModuleTimeoutError('m', 5000, { cause, traceId: 'trace-99' });
+      expect(err.cause).toBe(cause);
+      expect(err.traceId).toBe('trace-99');
+      expect(err.retryable).toBe(true);
+    });
+  });
+});
+
+describe('Approval error subclasses', () => {
+  it('ApprovalError base', () => {
+    const err = new ApprovalError('APPROVAL_DENIED', 'denied', {}, 'mod.x');
+    expect(err.name).toBe('ApprovalError');
+    expect(err.code).toBe('APPROVAL_DENIED');
+    expect(err.moduleId).toBe('mod.x');
+    expect(err.retryable).toBe(false);
+  });
+
+  it('ApprovalDeniedError', () => {
+    const result = { reason: 'not allowed' };
+    const err = new ApprovalDeniedError(result, 'mod.x');
+    expect(err.name).toBe('ApprovalDeniedError');
+    expect(err.code).toBe('APPROVAL_DENIED');
+    expect(err.message).toContain('not allowed');
+    expect(err.retryable).toBe(false);
+  });
+
+  it('ApprovalTimeoutError', () => {
+    const err = new ApprovalTimeoutError({}, 'mod.x');
+    expect(err.name).toBe('ApprovalTimeoutError');
+    expect(err.code).toBe('APPROVAL_TIMEOUT');
+    expect(err.retryable).toBe(true);
+  });
+
+  it('ApprovalPendingError', () => {
+    const result = { approvalId: 'abc-123' };
+    const err = new ApprovalPendingError(result, 'mod.x');
+    expect(err.name).toBe('ApprovalPendingError');
+    expect(err.code).toBe('APPROVAL_PENDING');
+    expect(err.approvalId).toBe('abc-123');
+    expect(err.retryable).toBe(false);
+  });
+
+  it('ApprovalDeniedError with options', () => {
+    const cause = new Error('root');
+    const err = new ApprovalDeniedError({}, 'mod.x', { cause, traceId: 'trace-1' });
+    expect(err.cause).toBe(cause);
+    expect(err.traceId).toBe('trace-1');
+  });
+
+  it('ApprovalTimeoutError with options', () => {
+    const err = new ApprovalTimeoutError({}, 'mod.x', { traceId: 'trace-2' });
+    expect(err.traceId).toBe('trace-2');
+  });
+
+  it('ApprovalTimeoutError with AI field overrides', () => {
+    const err = new ApprovalTimeoutError({}, 'mod.x', {
+      retryable: false,
+      aiGuidance: 'do not retry automatically',
+      userFixable: true,
+      suggestion: 'Contact the approver directly',
+    });
+    expect(err.retryable).toBe(false);
+    expect(err.aiGuidance).toBe('do not retry automatically');
+    expect(err.userFixable).toBe(true);
+    expect(err.suggestion).toBe('Contact the approver directly');
+  });
+
+  it('ApprovalPendingError with options', () => {
+    const err = new ApprovalPendingError({}, 'mod.x', { traceId: 'trace-3' });
+    expect(err.traceId).toBe('trace-3');
+  });
+
+  it('ApprovalPendingError with AI field overrides', () => {
+    const err = new ApprovalPendingError({}, 'mod.x', {
+      aiGuidance: 'poll for approval status',
+      suggestion: 'Wait for approval or contact approver',
+    });
+    expect(err.retryable).toBe(false);
+    expect(err.aiGuidance).toBe('poll for approval status');
+    expect(err.suggestion).toBe('Wait for approval or contact approver');
   });
 });
