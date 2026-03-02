@@ -110,4 +110,4 @@ export { ContextLogger, ObsLoggingMiddleware } from './observability/context-log
 export { TraceContext } from './trace-context.js';
 export type { TraceParent } from './trace-context.js';
 
-export const VERSION = '0.7.0';
+export const VERSION = '0.7.1';

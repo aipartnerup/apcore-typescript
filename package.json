@@ -1,6 +1,6 @@
 {
   "name": "apcore-js",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "AI-Perceivable Core — schema-driven module development framework",
   "type": "module",
   "main": "./dist/index.js",
@@ -50,7 +50,7 @@
     "approval",
     "acl"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "@sinclair/typebox": "^0.34.0",
     "js-yaml": "^4.1.0",

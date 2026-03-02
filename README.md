@@ -15,6 +15,7 @@ apcore provides a unified task orchestration framework with schema validation, a
 - **Registry system** — File-based module discovery with metadata, dependencies, and topological ordering
 - **Binding loader** — YAML-based module registration for no-code integration
 - **Access control (ACL)** — Pattern-based rules with identity types, roles, and call-depth conditions
+- **Approval system** — Pluggable approval gate in the executor pipeline with sync and async (polling) flows, built-in handlers, and tracing integration
 - **Middleware** — Onion-model middleware with before/after/onError hooks and error recovery
 - **Observability** — Tracing (spans + exporters), metrics (counters + histograms + Prometheus export), structured logging with redaction
 - **Schema export** — JSON/YAML schema export with strict and compact modes
@@ -63,6 +64,7 @@ src/
   context.ts            # Execution context and identity
   config.ts             # Dot-path configuration accessor
   acl.ts                # Access control with pattern matching
+  approval.ts           # Pluggable approval gate (handlers, request/result types)
   decorator.ts          # FunctionModule class and helpers
   bindings.ts           # YAML binding loader
   errors.ts             # Error hierarchy (20+ typed errors)

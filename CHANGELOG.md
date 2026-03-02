@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-02
+
+### Added
+- **Approval system** — Pluggable approval gate (Step 4.5) in the executor pipeline between ACL enforcement and input validation. Modules with `requiresApproval: true` annotation trigger an approval flow before execution proceeds.
+  - `ApprovalHandler` interface with `requestApproval()` and `checkApproval()` methods for synchronous and async (polling) approval flows
+  - `ApprovalRequest` and `ApprovalResult` types carrying invocation context and decision state (`approved`, `rejected`, `timeout`, `pending`)
+  - Three built-in handlers: `AutoApproveHandler` (dev/testing), `AlwaysDenyHandler` (safe default), `CallbackApprovalHandler` (user-provided async callback)
+  - `createApprovalRequest()` and `createApprovalResult()` factory functions
+  - `Executor.setApprovalHandler()` method for runtime handler configuration
+  - Approval audit events emitted to tracing spans for observability
+- **Approval error types** — `ApprovalError` (base), `ApprovalDeniedError`, `ApprovalTimeoutError` (retryable), `ApprovalPendingError` (carries `approvalId` for polling). Error codes `APPROVAL_DENIED`, `APPROVAL_TIMEOUT`, `APPROVAL_PENDING` added to `ErrorCodes`.
+- **`approval_handler` extension point** — Single-handler extension point in `ExtensionManager` for wiring approval handlers via the extension system.
+- **Approval test suites** — `test-approval.test.ts`, `test-approval-executor.test.ts`, `test-approval-integration.test.ts`, and `test-errors.test.ts` covering handler behavior, executor pipeline integration, async polling, and error class correctness.
+
+### Changed
+- **License changed from MIT to Apache-2.0**.
+- Added `"approval"` to `package.json` keywords.
+
 ## [0.6.0] - 2026-02-23
 
 ### Fixed
