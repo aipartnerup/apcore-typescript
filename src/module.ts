@@ -35,6 +35,30 @@ export interface ValidationResult {
   errors: Array<Record<string, string>>;
 }
 
+export interface PreflightCheckResult {
+  readonly check: string;
+  readonly passed: boolean;
+  readonly error?: Record<string, unknown>;
+}
+
+export interface PreflightResult {
+  readonly valid: boolean;
+  readonly checks: PreflightCheckResult[];
+  readonly requiresApproval: boolean;
+  readonly errors: Array<Record<string, unknown>>;
+}
+
+export function createPreflightResult(
+  checks: PreflightCheckResult[],
+  requiresApproval: boolean = false,
+): PreflightResult {
+  const valid = checks.every(c => c.passed);
+  const errors = checks
+    .filter(c => !c.passed && c.error != null)
+    .map(c => c.error!);
+  return { valid, checks, requiresApproval, errors };
+}
+
 export interface Module {
   inputSchema: TSchema;
   outputSchema: TSchema;

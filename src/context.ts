@@ -2,6 +2,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { CancelToken } from './cancel.js';
 import type { TraceParent } from './trace-context.js';
+import { ContextLogger } from './observability/context-logger.js';
 
 /**
  * Execution context, identity, and context creation.
@@ -131,14 +132,8 @@ export class Context<T = null> {
     );
   }
 
-  get logger(): { debug: (...args: unknown[]) => void; info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void } {
-    const prefix = `[apcore:${this.callerId ?? 'unknown'}]`;
-    return {
-      debug: (...args: unknown[]) => console.debug(prefix, ...args),
-      info: (...args: unknown[]) => console.info(prefix, ...args),
-      warn: (...args: unknown[]) => console.warn(prefix, ...args),
-      error: (...args: unknown[]) => console.error(prefix, ...args),
-    };
+  get logger(): ContextLogger {
+    return ContextLogger.fromContext(this, this.callerId ?? 'unknown');
   }
 
   child(targetModuleId: string): Context<T> {

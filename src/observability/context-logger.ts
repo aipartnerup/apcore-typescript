@@ -47,7 +47,7 @@ export class ContextLogger {
     this._output = options?.output ?? { write: (s: string) => console.error(s) };
   }
 
-  static fromContext(context: Context, name: string, options?: {
+  static fromContext(context: Context<unknown>, name: string, options?: {
     format?: string;
     level?: string;
     redactSensitive?: boolean;

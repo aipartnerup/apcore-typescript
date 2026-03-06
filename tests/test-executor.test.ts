@@ -187,7 +187,7 @@ describe('Executor', () => {
     expect(result['recovered']).toBe(true);
   });
 
-  it('validate() checks inputs without executing', () => {
+  it('validate() returns PreflightResult with all checks passed for valid inputs', () => {
     const registry = new Registry();
     const mod = new FunctionModule({
       execute: () => ({ ok: true }),
@@ -199,12 +199,83 @@ describe('Executor', () => {
     registry.register('v', mod);
 
     const executor = new Executor({ registry });
-    const valid = executor.validate('v', { x: 42 });
-    expect(valid.valid).toBe(true);
+    const result = executor.validate('v', { x: 42 });
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.checks.length).toBe(6);
+    expect(result.checks.every(c => c.passed)).toBe(true);
+  });
 
-    const invalid = executor.validate('v', { x: 'not-a-number' });
-    expect(invalid.valid).toBe(false);
-    expect(invalid.errors.length).toBeGreaterThan(0);
+  it('validate() returns schema failure for invalid inputs', () => {
+    const registry = new Registry();
+    const mod = new FunctionModule({
+      execute: () => ({ ok: true }),
+      moduleId: 'v',
+      inputSchema: Type.Object({ x: Type.Number() }),
+      outputSchema: Type.Object({ ok: Type.Boolean() }),
+      description: 'Validate test',
+    });
+    registry.register('v', mod);
+
+    const executor = new Executor({ registry });
+    const result = executor.validate('v', { x: 'not-a-number' });
+    expect(result.valid).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.checks.find(c => c.check === 'schema')?.passed).toBe(false);
+  });
+
+  it('validate() returns module_id failure for invalid ID format', () => {
+    const registry = new Registry();
+    const executor = new Executor({ registry });
+    const result = executor.validate('INVALID-ID!!');
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e['code'] === 'INVALID_INPUT')).toBe(true);
+    expect(result.checks.find(c => c.check === 'module_id')?.passed).toBe(false);
+  });
+
+  it('validate() returns module_lookup failure for unknown module', () => {
+    const registry = new Registry();
+    const executor = new Executor({ registry });
+    const result = executor.validate('unknown.module', {});
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e['code'] === 'MODULE_NOT_FOUND')).toBe(true);
+    expect(result.checks.find(c => c.check === 'module_lookup')?.passed).toBe(false);
+  });
+
+  it('validate() reports ACL denial without executing', () => {
+    const registry = new Registry();
+    const mod = new FunctionModule({
+      execute: () => ({ ok: true }),
+      moduleId: 'access.test',
+      inputSchema: Type.Object({ x: Type.Number() }),
+      outputSchema: Type.Object({ ok: Type.Boolean() }),
+      description: 'ACL test',
+    });
+    registry.register('access.test', mod);
+
+    const acl = new ACL([], 'deny');
+    const executor = new Executor({ registry, acl });
+    const result = executor.validate('access.test', { x: 42 });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e['code'] === 'ACL_DENIED')).toBe(true);
+  });
+
+  it('validate() detects requiresApproval annotation', () => {
+    const registry = new Registry();
+    const mod = new FunctionModule({
+      execute: () => ({ ok: true }),
+      moduleId: 'approval.test',
+      inputSchema: Type.Object({ x: Type.Number() }),
+      outputSchema: Type.Object({ ok: Type.Boolean() }),
+      description: 'Approval test',
+      annotations: { requiresApproval: true, readonly: false, destructive: false, idempotent: false, openWorld: true, streaming: false },
+    });
+    registry.register('approval.test', mod);
+
+    const executor = new Executor({ registry });
+    const result = executor.validate('approval.test', { x: 42 });
+    expect(result.valid).toBe(true);
+    expect(result.requiresApproval).toBe(true);
   });
 
   it('auto-creates context when none provided', async () => {

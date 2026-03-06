@@ -19,6 +19,7 @@ import {
   ApprovalPendingError,
   ApprovalTimeoutError,
   InvalidInputError,
+  ModuleError,
   ModuleNotFoundError,
   ModuleTimeoutError,
   SchemaValidationError,
@@ -26,8 +27,9 @@ import {
 import { AfterMiddleware, BeforeMiddleware, Middleware } from './middleware/index.js';
 import { MiddlewareChainError, MiddlewareManager } from './middleware/manager.js';
 import { guardCallChain } from './utils/call-chain.js';
-import type { ModuleAnnotations, ValidationResult } from './module.js';
-import { DEFAULT_ANNOTATIONS } from './module.js';
+import type { ModuleAnnotations, PreflightCheckResult, PreflightResult } from './module.js';
+import { DEFAULT_ANNOTATIONS, createPreflightResult } from './module.js';
+import { MODULE_ID_PATTERN } from './registry/registry.js';
 import type { Registry } from './registry/registry.js';
 
 export const REDACTED_VALUE: string = '***REDACTED***';
@@ -178,7 +180,7 @@ export class Executor {
     this._acl = acl;
   }
 
-  /** Set the approval handler for Step 4.5 gate. */
+  /** Set the approval handler for Step 5 gate. */
   setApprovalHandler(handler: ApprovalHandler): void {
     this._approvalHandler = handler;
   }
@@ -336,7 +338,7 @@ export class Executor {
     const mod = this._lookupModule(moduleId);
     this._checkAcl(moduleId, ctx);
 
-    // Step 4.5 -- Approval Gate (strips internal keys like _approval_token)
+    // Step 5 -- Approval Gate (strips internal keys like _approval_token)
     effectiveInputs = await this._checkApproval(mod, moduleId, effectiveInputs, ctx);
 
     effectiveInputs = this._validateInputs(mod, effectiveInputs, ctx);
@@ -457,32 +459,98 @@ export class Executor {
     }
   }
 
-  validate(moduleId: string, inputs: Record<string, unknown>): ValidationResult {
+  /**
+   * Non-destructive preflight check through Steps 1-6 of the pipeline.
+   * Returns a PreflightResult that is duck-type compatible with ValidationResult.
+   */
+  validate(
+    moduleId: string,
+    inputs?: Record<string, unknown> | null,
+    context?: Context | null,
+  ): PreflightResult {
+    const effectiveInputs = inputs ?? {};
+    const checks: PreflightCheckResult[] = [];
+    let requiresApproval = false;
+
+    // Check 1: module_id format
+    if (!MODULE_ID_PATTERN.test(moduleId)) {
+      checks.push({
+        check: 'module_id', passed: false,
+        error: { code: 'INVALID_INPUT', message: `Invalid module ID: "${moduleId}"` },
+      });
+      return createPreflightResult(checks);
+    }
+    checks.push({ check: 'module_id', passed: true });
+
+    // Check 2: module lookup
     const module = this._registry.get(moduleId);
     if (module === null) {
-      throw new ModuleNotFoundError(moduleId);
-    }
-
-    const mod = module as Record<string, unknown>;
-    const inputSchema = mod['inputSchema'] as TSchema | undefined;
-
-    if (inputSchema == null) {
-      return { valid: true, errors: [] };
-    }
-
-    if (Value.Check(inputSchema, inputs)) {
-      return { valid: true, errors: [] };
-    }
-
-    const errors: Array<Record<string, string>> = [];
-    for (const error of Value.Errors(inputSchema, inputs)) {
-      errors.push({
-        field: error.path || '/',
-        code: String(error.type),
-        message: error.message,
+      checks.push({
+        check: 'module_lookup', passed: false,
+        error: { code: 'MODULE_NOT_FOUND', message: `Module not found: ${moduleId}` },
       });
+      return createPreflightResult(checks);
     }
-    return { valid: false, errors };
+    checks.push({ check: 'module_lookup', passed: true });
+    const mod = module as Record<string, unknown>;
+
+    // Check 3: call chain safety
+    const ctx = this._createContext(moduleId, context);
+    try {
+      this._checkSafety(moduleId, ctx);
+      checks.push({ check: 'call_chain', passed: true });
+    } catch (e) {
+      const err = e instanceof ModuleError
+        ? { code: e.code, message: e.message }
+        : { code: 'CALL_CHAIN_ERROR', message: String(e) };
+      checks.push({ check: 'call_chain', passed: false, error: err });
+    }
+
+    // Check 4: ACL
+    if (this._acl !== null) {
+      const allowed = this._acl.check(ctx.callerId, moduleId, ctx);
+      if (!allowed) {
+        checks.push({
+          check: 'acl', passed: false,
+          error: { code: 'ACL_DENIED', message: `Access denied: ${ctx.callerId} -> ${moduleId}` },
+        });
+      } else {
+        checks.push({ check: 'acl', passed: true });
+      }
+    } else {
+      checks.push({ check: 'acl', passed: true });
+    }
+
+    // Check 5: approval detection (report only, no handler invocation)
+    if (this._needsApproval(mod)) {
+      requiresApproval = true;
+    }
+    checks.push({ check: 'approval', passed: true });
+
+    // Check 6: input schema validation
+    const inputSchema = mod['inputSchema'] as TSchema | undefined;
+    if (inputSchema != null) {
+      if (Value.Check(inputSchema, effectiveInputs)) {
+        checks.push({ check: 'schema', passed: true });
+      } else {
+        const errors: Array<Record<string, unknown>> = [];
+        for (const error of Value.Errors(inputSchema, effectiveInputs)) {
+          errors.push({
+            field: error.path || '/',
+            code: String(error.type),
+            message: error.message,
+          });
+        }
+        checks.push({
+          check: 'schema', passed: false,
+          error: { code: 'SCHEMA_VALIDATION_ERROR', errors },
+        });
+      }
+    } else {
+      checks.push({ check: 'schema', passed: true });
+    }
+
+    return createPreflightResult(checks, requiresApproval);
   }
 
   private _checkSafety(moduleId: string, ctx: Context): void {
@@ -568,7 +636,7 @@ export class Executor {
     }
   }
 
-  /** Step 4.5: Approval gate. Returns inputs with internal keys stripped. */
+  /** Step 5: Approval gate. Returns inputs with internal keys stripped. */
   private async _checkApproval(
     mod: Record<string, unknown>,
     moduleId: string,

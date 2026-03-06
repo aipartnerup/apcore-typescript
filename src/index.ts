@@ -11,8 +11,8 @@ export type { Discoverer, ModuleValidator } from './registry/registry.js';
 export { Executor, redactSensitive, REDACTED_VALUE, CTX_GLOBAL_DEADLINE, CTX_TRACING_SPANS } from './executor.js';
 
 // Module types
-export { DEFAULT_ANNOTATIONS } from './module.js';
-export type { ModuleAnnotations, ModuleExample, ValidationResult, Module } from './module.js';
+export { DEFAULT_ANNOTATIONS, createPreflightResult } from './module.js';
+export type { ModuleAnnotations, ModuleExample, ValidationResult, PreflightCheckResult, PreflightResult, Module } from './module.js';
 
 // Config
 export { Config } from './config.js';
@@ -120,4 +120,4 @@ export { ContextLogger, ObsLoggingMiddleware } from './observability/context-log
 export { TraceContext } from './trace-context.js';
 export type { TraceParent } from './trace-context.js';
 
-export const VERSION = '0.8.0';
+export const VERSION = '0.9.0';
