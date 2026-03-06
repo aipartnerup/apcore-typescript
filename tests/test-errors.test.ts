@@ -691,12 +691,12 @@ describe('AI Error Guidance Fields', () => {
       expect(json.message).toBe('test');
       expect(json).toHaveProperty('timestamp');
       expect(json).not.toHaveProperty('retryable');
-      expect(json).not.toHaveProperty('ai_guidance');
-      expect(json).not.toHaveProperty('user_fixable');
+      expect(json).not.toHaveProperty('aiGuidance');
+      expect(json).not.toHaveProperty('userFixable');
       expect(json).not.toHaveProperty('suggestion');
       expect(json).not.toHaveProperty('details');
       expect(json).not.toHaveProperty('cause');
-      expect(json).not.toHaveProperty('trace_id');
+      expect(json).not.toHaveProperty('traceId');
     });
 
     it('includes non-null AI fields', () => {
@@ -706,8 +706,8 @@ describe('AI Error Guidance Fields', () => {
       );
       const json = err.toJSON();
       expect(json.retryable).toBe(false);
-      expect(json.ai_guidance).toBe('do not retry');
-      expect(json.user_fixable).toBe(true);
+      expect(json.aiGuidance).toBe('do not retry');
+      expect(json.userFixable).toBe(true);
       expect(json.suggestion).toBe('Fix input');
     });
 
@@ -724,10 +724,10 @@ describe('AI Error Guidance Fields', () => {
       expect(json.cause).toBe('Error: root');
     });
 
-    it('includes trace_id when present', () => {
+    it('includes traceId when present', () => {
       const err = new ModuleError('TEST', 'test', {}, undefined, 'trace-abc');
       const json = err.toJSON();
-      expect(json.trace_id).toBe('trace-abc');
+      expect(json.traceId).toBe('trace-abc');
     });
   });
 

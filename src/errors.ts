@@ -64,17 +64,17 @@ export class ModuleError extends Error {
       obj.cause = String(this.cause);
     }
     if (this.traceId !== undefined) {
-      obj.trace_id = this.traceId;
+      obj.traceId = this.traceId;
     }
     obj.timestamp = this.timestamp;
     if (this.retryable !== null) {
       obj.retryable = this.retryable;
     }
     if (this.aiGuidance !== null) {
-      obj.ai_guidance = this.aiGuidance;
+      obj.aiGuidance = this.aiGuidance;
     }
     if (this.userFixable !== null) {
-      obj.user_fixable = this.userFixable;
+      obj.userFixable = this.userFixable;
     }
     if (this.suggestion !== null) {
       obj.suggestion = this.suggestion;

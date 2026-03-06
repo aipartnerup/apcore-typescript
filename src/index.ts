@@ -8,7 +8,7 @@ export { Context, createIdentity } from './context.js';
 export type { Identity, ContextFactory } from './context.js';
 export { Registry, REGISTRY_EVENTS, MODULE_ID_PATTERN, MAX_MODULE_ID_LENGTH, RESERVED_WORDS } from './registry/registry.js';
 export type { Discoverer, ModuleValidator } from './registry/registry.js';
-export { Executor, redactSensitive, REDACTED_VALUE } from './executor.js';
+export { Executor, redactSensitive, REDACTED_VALUE, CTX_GLOBAL_DEADLINE, CTX_TRACING_SPANS } from './executor.js';
 
 // Module types
 export { DEFAULT_ANNOTATIONS } from './module.js';
@@ -69,7 +69,7 @@ export { ACL } from './acl.js';
 export type { ACLRule, AuditEntry, AuditLogger } from './acl.js';
 
 // Middleware
-export { Middleware, MiddlewareManager, MiddlewareChainError, BeforeMiddleware, AfterMiddleware, LoggingMiddleware, RetryMiddleware } from './middleware/index.js';
+export { Middleware, MiddlewareManager, MiddlewareChainError, BeforeMiddleware, AfterMiddleware, LoggingMiddleware, RetryMiddleware, CTX_RETRY_COUNT_PREFIX, CTX_RETRY_DELAY_PREFIX } from './middleware/index.js';
 export type { RetryConfig } from './middleware/index.js';
 
 // Decorator

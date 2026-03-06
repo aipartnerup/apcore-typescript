@@ -61,7 +61,7 @@
     "@types/node": "^20.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/uuid": "^9.0.0",
-    "apdev-js": "^0.1.1",
+    "apdev-js": "^0.2.0",
     "vitest": "^2.0.0",
     "@vitest/coverage-v8": "^2.0.0"
   }

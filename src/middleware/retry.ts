@@ -6,6 +6,10 @@ import type { Context } from '../context.js';
 import type { ModuleError } from '../errors.js';
 import { Middleware } from './base.js';
 
+/** Well-known context.data key prefixes for retry state. */
+export const CTX_RETRY_COUNT_PREFIX = '_retry_count_';
+export const CTX_RETRY_DELAY_PREFIX = '_retry_delay_ms_';
+
 export interface RetryConfig {
   maxRetries: number;
   strategy: 'exponential' | 'fixed';
@@ -48,7 +52,7 @@ export class RetryMiddleware extends Middleware {
     const retryable = (error as ModuleError).retryable;
     if (retryable !== true) return null;
 
-    const retryKey = `_retry_count_${moduleId}`;
+    const retryKey = `${CTX_RETRY_COUNT_PREFIX}${moduleId}`;
     const retryCount = (context.data[retryKey] as number) ?? 0;
 
     if (retryCount >= this._config.maxRetries) {
@@ -71,7 +75,7 @@ export class RetryMiddleware extends Middleware {
     // to return the inputs immediately and let the pipeline handle retry.
     // For compatibility with the sync Middleware base class, we return
     // inputs directly. The delay is handled via context.data hint.
-    context.data[`_retry_delay_ms_${moduleId}`] = delayMs;
+    context.data[`${CTX_RETRY_DELAY_PREFIX}${moduleId}`] = delayMs;
 
     return { ...inputs };
   }

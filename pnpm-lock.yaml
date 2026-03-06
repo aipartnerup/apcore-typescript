@@ -31,8 +31,8 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(vitest@2.1.9(@types/node@20.19.33))
       apdev-js:
-        specifier: ^0.1.1
-        version: 0.1.1
+        specifier: ^0.2.0
+        version: 0.2.0(typescript@5.9.3)
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
@@ -436,9 +436,14 @@ packages:
     resolution: {integrity: sha512-4Dj6M28JB+oAH8kFkTLUo+a2jwOFkuqb3yucU0CANcRRUbxS0cP0nZYCGjcc3BNXwRIsUVmDGgzawme7zvJHvg==}
     engines: {node: '>=12'}
 
-  apdev-js@0.1.1:
-    resolution: {integrity: sha512-4RWwNftMuiY3WDMQY3/oJ+2kFogD0mT7acKpmhfFx+eJiv+lkjbTpC6wpNPxbfhaeWeu+MVlH5RrDnM5scDE5g==}
+  apdev-js@0.2.0:
+    resolution: {integrity: sha512-bBdVf7Go2t4Awnaxwn4O1i8kDnp+nISmNEw2lSJFD7G91euGwVzcbFJ84QvUvyHDEoOKmUg+309q03Dt4qAnmQ==}
     hasBin: true
+    peerDependencies:
+      typescript: ^5.0.0
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
@@ -1067,9 +1072,10 @@ snapshots:
 
   ansi-styles@6.2.3: {}
 
-  apdev-js@0.1.1:
+  apdev-js@0.2.0(typescript@5.9.3):
     dependencies:
       commander: 13.1.0
+    optionalDependencies:
       typescript: 5.9.3
 
   argparse@2.0.1: {}

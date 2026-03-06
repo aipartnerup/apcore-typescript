@@ -674,7 +674,9 @@ export class Registry {
    * reaches zero.
    */
   release(moduleId: string): void {
-    const count = (this._refCounts.get(moduleId) ?? 1) - 1;
+    const current = this._refCounts.get(moduleId);
+    if (current === undefined || current <= 0) return;
+    const count = current - 1;
     if (count <= 0) {
       this._refCounts.delete(moduleId);
       const resolvers = this._drainResolvers.get(moduleId);
@@ -721,16 +723,23 @@ export class Registry {
     if (current <= 0) return Promise.resolve(true);
 
     return new Promise<boolean>((resolve) => {
-      const resolvers = this._drainResolvers.get(moduleId) ?? [];
-      resolvers.push(() => resolve(true));
-      this._drainResolvers.set(moduleId, resolvers);
-
-      setTimeout(() => {
-        // If still draining when timeout fires, resolve false
-        if (this._refCounts.has(moduleId)) {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
           resolve(false);
         }
       }, timeoutMs);
+
+      const resolvers = this._drainResolvers.get(moduleId) ?? [];
+      resolvers.push(() => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(true);
+        }
+      });
+      this._drainResolvers.set(moduleId, resolvers);
     });
   }
 

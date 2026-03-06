@@ -32,6 +32,10 @@ import type { Registry } from './registry/registry.js';
 
 export const REDACTED_VALUE: string = '***REDACTED***';
 
+/** Well-known context.data keys used internally by the framework. */
+export const CTX_GLOBAL_DEADLINE = '_global_deadline';
+export const CTX_TRACING_SPANS = '_tracing_spans';
+
 export function redactSensitive(
   data: Record<string, unknown>,
   schemaDict: Record<string, unknown>,
@@ -203,24 +207,7 @@ export class Executor {
     inputs?: Record<string, unknown> | null,
     context?: Context | null,
   ): Promise<Record<string, unknown>> {
-    let effectiveInputs = inputs ?? {};
-    const ctx = this._createContext(moduleId, context);
-
-    // Set global deadline on root call only
-    if (!('_global_deadline' in ctx.data) && this._globalTimeout > 0) {
-      ctx.data['_global_deadline'] = Date.now() + this._globalTimeout;
-    }
-
-    this._checkSafety(moduleId, ctx);
-
-    const mod = this._lookupModule(moduleId);
-    this._checkAcl(moduleId, ctx);
-
-    // Step 4.5 -- Approval Gate
-    await this._checkApproval(mod, moduleId, effectiveInputs, ctx);
-
-    effectiveInputs = this._validateInputs(mod, effectiveInputs, ctx);
-
+    const { mod, effectiveInputs, ctx } = await this._prepareExecution(moduleId, inputs, context);
     return this._executeWithMiddleware(mod, moduleId, effectiveInputs, ctx);
   }
 
@@ -252,24 +239,7 @@ export class Executor {
     inputs?: Record<string, unknown> | null,
     context?: Context | null,
   ): AsyncGenerator<Record<string, unknown>> {
-    let effectiveInputs = inputs ?? {};
-    const ctx = this._createContext(moduleId, context);
-
-    // Set global deadline on root call only
-    if (!('_global_deadline' in ctx.data) && this._globalTimeout > 0) {
-      ctx.data['_global_deadline'] = Date.now() + this._globalTimeout;
-    }
-
-    this._checkSafety(moduleId, ctx);
-
-    const mod = this._lookupModule(moduleId);
-    this._checkAcl(moduleId, ctx);
-
-    // Step 4.5 -- Approval Gate
-    await this._checkApproval(mod, moduleId, effectiveInputs, ctx);
-
-    effectiveInputs = this._validateInputs(mod, effectiveInputs, ctx);
-
+    const { mod, effectiveInputs, ctx } = await this._prepareExecution(moduleId, inputs, context);
     yield* this._streamWithMiddleware(mod, moduleId, effectiveInputs, ctx);
   }
 
@@ -343,6 +313,35 @@ export class Executor {
       }
       throw exc;
     }
+  }
+
+  /**
+   * Shared pipeline: context -> global deadline -> safety -> lookup -> ACL -> approval -> validate.
+   */
+  private async _prepareExecution(
+    moduleId: string,
+    inputs?: Record<string, unknown> | null,
+    context?: Context | null,
+  ): Promise<{ mod: Record<string, unknown>; effectiveInputs: Record<string, unknown>; ctx: Context }> {
+    let effectiveInputs = inputs ?? {};
+    const ctx = this._createContext(moduleId, context);
+
+    // Set global deadline on root call only
+    if (!(CTX_GLOBAL_DEADLINE in ctx.data) && this._globalTimeout > 0) {
+      ctx.data[CTX_GLOBAL_DEADLINE] = Date.now() + this._globalTimeout;
+    }
+
+    this._checkSafety(moduleId, ctx);
+
+    const mod = this._lookupModule(moduleId);
+    this._checkAcl(moduleId, ctx);
+
+    // Step 4.5 -- Approval Gate (strips internal keys like _approval_token)
+    effectiveInputs = await this._checkApproval(mod, moduleId, effectiveInputs, ctx);
+
+    effectiveInputs = this._validateInputs(mod, effectiveInputs, ctx);
+
+    return { mod, effectiveInputs, ctx };
   }
 
   private _createContext(moduleId: string, context?: Context | null): Context {
@@ -556,7 +555,7 @@ export class Executor {
       `[apcore:executor] Approval decision: module=${moduleId} status=${result.status} approved_by=${result.approvedBy} reason=${result.reason}`,
     );
 
-    const spansStack = ctx.data['_tracing_spans'] as Array<{ events: Array<Record<string, unknown>> }> | undefined;
+    const spansStack = ctx.data[CTX_TRACING_SPANS] as Array<{ events: Array<Record<string, unknown>> }> | undefined;
     if (spansStack && spansStack.length > 0) {
       spansStack[spansStack.length - 1].events.push({
         name: 'approval_decision',
@@ -569,20 +568,22 @@ export class Executor {
     }
   }
 
-  /** Step 4.5: Approval gate. */
+  /** Step 4.5: Approval gate. Returns inputs with internal keys stripped. */
   private async _checkApproval(
     mod: Record<string, unknown>,
     moduleId: string,
     inputs: Record<string, unknown>,
     ctx: Context,
-  ): Promise<void> {
-    if (this._approvalHandler === null) return;
-    if (!this._needsApproval(mod)) return;
+  ): Promise<Record<string, unknown>> {
+    if (this._approvalHandler === null) return inputs;
+    if (!this._needsApproval(mod)) return inputs;
 
     let result: ApprovalResult;
+    let cleanInputs = inputs;
     if ('_approval_token' in inputs) {
       const token = inputs['_approval_token'] as string;
-      delete inputs['_approval_token'];
+      const { _approval_token: _, ...rest } = inputs;
+      cleanInputs = rest;
       result = await this._approvalHandler.checkApproval(token);
     } else {
       const request = this._buildApprovalRequest(mod, moduleId, inputs, ctx);
@@ -591,6 +592,7 @@ export class Executor {
 
     this._emitApprovalEvent(result, moduleId, ctx);
     this._handleApprovalResult(result, moduleId);
+    return cleanInputs;
   }
 
   private async _executeWithTimeout(
@@ -602,7 +604,7 @@ export class Executor {
     let timeoutMs = this._defaultTimeout;
 
     // Respect global deadline: use whichever is shorter
-    const globalDeadline = ctx.data['_global_deadline'] as number | undefined;
+    const globalDeadline = ctx.data[CTX_GLOBAL_DEADLINE] as number | undefined;
     if (globalDeadline !== undefined) {
       const remaining = globalDeadline - Date.now();
       if (remaining <= 0) {

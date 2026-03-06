@@ -277,7 +277,7 @@ describe('ApprovalGate call()', () => {
     expect(req.context.traceId).toBeDefined();
   });
 
-  it('pops _approval_token and calls checkApproval', async () => {
+  it('strips _approval_token and calls checkApproval without mutating caller inputs', async () => {
     const registry = createTestRegistry();
     const checkCalledWith: string[] = [];
 
@@ -296,8 +296,8 @@ describe('ApprovalGate call()', () => {
     const result = await executor.call('test.approval_required', inputs);
     expect(result['status']).toBe('executed');
     expect(checkCalledWith).toEqual(['my-token']);
-    // Token should be removed from inputs
-    expect(inputs['_approval_token']).toBeUndefined();
+    // Caller's inputs object should NOT be mutated
+    expect(inputs['_approval_token']).toBe('my-token');
   });
 
   it('treats unknown status as denied', async () => {
