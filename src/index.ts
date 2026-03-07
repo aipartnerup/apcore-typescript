@@ -2,6 +2,10 @@
  * apcore - Schema-driven module development framework.
  */
 
+// Client
+export { APCore } from './client.js';
+export type { APCoreOptions, ModuleOptions } from './client.js';
+
 // Core
 export { CancelToken, ExecutionCancelledError } from './cancel.js';
 export { Context, createIdentity } from './context.js';
@@ -57,6 +61,8 @@ export {
   BindingSchemaMissingError,
   BindingFileInvalidError,
   CircularDependencyError,
+  DependencyNotFoundError,
+  NotImplementedError,
   ModuleLoadError,
   ModuleExecuteError,
   InternalError,
@@ -120,4 +126,4 @@ export { ContextLogger, ObsLoggingMiddleware } from './observability/context-log
 export { TraceContext } from './trace-context.js';
 export type { TraceParent } from './trace-context.js';
 
-export const VERSION = '0.9.0';
+export const VERSION = '0.10.0';

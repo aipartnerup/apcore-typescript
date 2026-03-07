@@ -64,4 +64,12 @@ export interface Module {
   outputSchema: TSchema;
   description: string;
   execute(inputs: Record<string, unknown>, context: Context): Promise<Record<string, unknown>> | Record<string, unknown>;
+  /** Optional: Stream module output chunk by chunk. */
+  stream?(inputs: Record<string, unknown>, context: Context): AsyncGenerator<Record<string, unknown>>;
+  /** Optional: Custom input validation without execution. */
+  validate?(inputs: Record<string, unknown>): ValidationResult | Promise<ValidationResult>;
+  /** Optional: Called when module is loaded into the registry. */
+  onLoad?(): void | Promise<void>;
+  /** Optional: Called when module is unloaded from the registry. */
+  onUnload?(): void | Promise<void>;
 }

@@ -11,7 +11,7 @@ apcore provides a unified task orchestration framework with schema validation, a
 ## Features
 
 - **Schema-driven modules** — Define input/output schemas with TypeBox for runtime validation
-- **Executor pipeline** — 10-step execution pipeline: context → safety checks → lookup → ACL → validation → middleware before → execute → output validation → middleware after → return
+- **Executor pipeline** — 11-step execution pipeline: context → safety checks → lookup → ACL → approval gate → validation → middleware before → execute → output validation → middleware after → return
 - **Registry system** — File-based module discovery with metadata, dependencies, and topological ordering
 - **Binding loader** — YAML-based module registration for no-code integration
 - **Access control (ACL)** — Pattern-based rules with identity types, roles, and call-depth conditions
@@ -38,11 +38,39 @@ npm install apcore-js
 
 ## Quick Start
 
+### Simplified Client (Recommended)
+
+The `APCore` client provides a unified entry point that manages Registry and Executor for you:
+
+```typescript
+import { Type } from '@sinclair/typebox';
+import { APCore } from 'apcore-js';
+
+const client = new APCore();
+
+// Register a module
+client.module({
+  id: 'math.add',
+  description: 'Add two numbers',
+  inputSchema: Type.Object({ a: Type.Number(), b: Type.Number() }),
+  outputSchema: Type.Object({ sum: Type.Number() }),
+  execute: (inputs) => ({ sum: (inputs.a as number) + (inputs.b as number) }),
+});
+
+// Call, validate, stream — all from one client
+const result = await client.call('math.add', { a: 10, b: 5 });
+// => { sum: 15 }
+
+const preflight = client.validate('math.add', { a: 10, b: 5 });
+// => { valid: true, checks: [...], requiresApproval: false, errors: [] }
+```
+
+### Advanced: Manual Registry + Executor
+
 ```typescript
 import { Type } from '@sinclair/typebox';
 import { FunctionModule, Registry, Executor } from 'apcore-js';
 
-// Define a module
 const greet = new FunctionModule({
   execute: (inputs) => ({ greeting: `Hello, ${inputs.name}!` }),
   moduleId: 'example.greet',
@@ -51,7 +79,6 @@ const greet = new FunctionModule({
   description: 'Greet a user',
 });
 
-// Register and execute
 const registry = new Registry();
 registry.register('example.greet', greet);
 
@@ -65,7 +92,7 @@ const result = await executor.call('example.greet', { name: 'World' });
 ```
 src/
   index.ts              # Public API exports
-  executor.ts           # 10-step execution pipeline
+  executor.ts           # 11-step execution pipeline
   context.ts            # Execution context and identity
   config.ts             # Dot-path configuration accessor
   acl.ts                # Access control with pattern matching
@@ -74,7 +101,7 @@ src/
   cancel.ts             # Cancellation token support
   decorator.ts          # FunctionModule class and helpers
   bindings.ts           # YAML binding loader
-  errors.ts             # Error hierarchy (30+ typed errors)
+  errors.ts             # Error hierarchy (36 typed errors)
   extensions.ts         # Extension manager
   module.ts             # Module types and annotations
   trace-context.ts     # W3C trace context (inject/extract)

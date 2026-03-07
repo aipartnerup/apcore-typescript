@@ -530,6 +530,44 @@ export class CircularDependencyError extends ModuleError {
   }
 }
 
+export class DependencyNotFoundError extends ModuleError {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(moduleId: string, dependencyId: string, options?: ErrorOptions) {
+    super(
+      'DEPENDENCY_NOT_FOUND',
+      `Dependency '${dependencyId}' not found for module '${moduleId}'`,
+      { moduleId, dependencyId },
+      options?.cause,
+      options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
+    );
+    this.name = 'DependencyNotFoundError';
+  }
+}
+
+export class NotImplementedError extends ModuleError {
+  static override readonly DEFAULT_RETRYABLE: boolean | null = false;
+
+  constructor(message: string = 'Feature not implemented', options?: ErrorOptions) {
+    super(
+      'GENERAL_NOT_IMPLEMENTED',
+      message,
+      {},
+      options?.cause,
+      options?.traceId,
+      options?.retryable,
+      options?.aiGuidance,
+      options?.userFixable,
+      options?.suggestion,
+    );
+    this.name = 'NotImplementedError';
+  }
+}
+
 export class ModuleLoadError extends ModuleError {
   static override readonly DEFAULT_RETRYABLE: boolean | null = false;
 
@@ -683,8 +721,6 @@ export const ErrorCodes = Object.freeze({
   APPROVAL_PENDING: "APPROVAL_PENDING",
   VERSION_INCOMPATIBLE: "VERSION_INCOMPATIBLE",
   ERROR_CODE_COLLISION: "ERROR_CODE_COLLISION",
-  // Forward declarations for Level 2 Phase 2 features.
-  // Exception classes will be added when the corresponding features are implemented.
   GENERAL_NOT_IMPLEMENTED: "GENERAL_NOT_IMPLEMENTED",
   DEPENDENCY_NOT_FOUND: "DEPENDENCY_NOT_FOUND",
 } as const);
