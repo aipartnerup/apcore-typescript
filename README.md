@@ -100,6 +100,19 @@ const result = await executor.call('example.greet', { name: 'World' });
 | `Middleware` | Pipeline hooks — before/after/onError interception |
 | `EventEmitter` | Event system — subscribe, emit, flush |
 
+## Examples
+
+The `examples/` directory contains runnable examples demonstrating key features:
+
+| Example | Description |
+|---------|-------------|
+| `simple-client.ts` | APCore client with module registration and calls |
+| `modules/greet.ts` | Minimal FunctionModule |
+| `modules/get-user.ts` | Readonly + idempotent annotations |
+| `modules/send-email.ts` | Full-featured: annotations, examples, metadata, ContextLogger |
+| `modules/decorated-add.ts` | `module()` function for creating modules |
+| `bindings/format-date/` | YAML binding with target function |
+
 ## Architecture
 
 ```

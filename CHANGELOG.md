@@ -39,6 +39,9 @@ Built-in `system.*` modules that allow AI agents to query, monitor
 #### Registry
 - **Module toggle** — `ToggleState` with `disable()`/`enable()`, `ModuleDisabledError` enforcement.
 
+#### Examples
+- **`examples/`** directory — 7 runnable examples mirroring apcore-python: simple client, minimal module, readonly module, full-featured module with ContextLogger, `module()` function, and YAML binding with target function.
+
 ### Fixed
 - **Stale `VERSION` constant** in built dist (`0.9.0` vs `0.11.0`). Rebuilt dist to match `package.json`.
 - README architecture tree updated to include ~20 missing source files (`client.ts`, `events/`, `sys-modules/`, etc.).
