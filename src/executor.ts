@@ -35,8 +35,8 @@ import type { Registry } from './registry/registry.js';
 export const REDACTED_VALUE: string = '***REDACTED***';
 
 /** Well-known context.data keys used internally by the framework. */
-export const CTX_GLOBAL_DEADLINE = '_global_deadline';
-export const CTX_TRACING_SPANS = '_tracing_spans';
+export const CTX_GLOBAL_DEADLINE = '_apcore.executor.global_deadline';
+export const CTX_TRACING_SPANS = '_apcore.mw.tracing.spans';
 
 export function redactSensitive(
   data: Record<string, unknown>,
@@ -551,6 +551,26 @@ export class Executor {
       }
     } else {
       checks.push({ check: 'schema', passed: true });
+    }
+
+    // Check 7: module-level preflight (optional)
+    if (typeof (mod as any).preflight === 'function') {
+      try {
+        const preflightWarnings = (mod as any).preflight(effectiveInputs, ctx);
+        if (Array.isArray(preflightWarnings) && preflightWarnings.length > 0) {
+          checks.push({ check: 'module_preflight', passed: true, warnings: preflightWarnings });
+        } else {
+          checks.push({ check: 'module_preflight', passed: true });
+        }
+      } catch (exc: unknown) {
+        const excName = exc instanceof Error ? exc.constructor.name : 'Error';
+        const excMsg = exc instanceof Error ? exc.message : String(exc);
+        checks.push({
+          check: 'module_preflight',
+          passed: true,
+          warnings: [`preflight() raised ${excName}: ${excMsg}`],
+        });
+      }
     }
 
     return createPreflightResult(checks, requiresApproval);

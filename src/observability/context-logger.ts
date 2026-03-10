@@ -145,9 +145,9 @@ export class ObsLoggingMiddleware extends Middleware {
     inputs: Record<string, unknown>,
     context: Context,
   ): null {
-    const starts = (context.data['_obs_logging_starts'] as number[]) ?? [];
+    const starts = (context.data['_apcore.mw.logging.obs_starts'] as number[]) ?? [];
     starts.push(performance.now());
-    context.data['_obs_logging_starts'] = starts;
+    context.data['_apcore.mw.logging.obs_starts'] = starts;
 
     const extra: Record<string, unknown> = {
       module_id: moduleId,
@@ -166,7 +166,7 @@ export class ObsLoggingMiddleware extends Middleware {
     output: Record<string, unknown>,
     context: Context,
   ): null {
-    const starts = context.data['_obs_logging_starts'] as number[] | undefined;
+    const starts = context.data['_apcore.mw.logging.obs_starts'] as number[] | undefined;
     if (!starts || starts.length === 0) return null;
     const startTime = starts.pop()!;
     const durationMs = performance.now() - startTime;
@@ -188,7 +188,7 @@ export class ObsLoggingMiddleware extends Middleware {
     error: Error,
     context: Context,
   ): null {
-    const starts = context.data['_obs_logging_starts'] as number[] | undefined;
+    const starts = context.data['_apcore.mw.logging.obs_starts'] as number[] | undefined;
     if (!starts || starts.length === 0) return null;
     const startTime = starts.pop()!;
     const durationMs = performance.now() - startTime;

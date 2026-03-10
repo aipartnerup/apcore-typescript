@@ -19,7 +19,7 @@ describe('RetryMiddleware', () => {
     const err = new ModuleTimeoutError('test.module', 5000);
     const result = mw.onError('test.module', { x: 1 }, err, ctx);
     expect(result).toEqual({ x: 1 });
-    expect(ctx.data['_retry_count_test.module']).toBe(1);
+    expect(ctx.data['_apcore.mw.retry.count.test.module']).toBe(1);
   });
 
   it('tracks retry count across calls', () => {
@@ -28,13 +28,13 @@ describe('RetryMiddleware', () => {
     const err = new ModuleTimeoutError('test.module', 5000);
 
     mw.onError('test.module', {}, err, ctx); // attempt 1
-    expect(ctx.data['_retry_count_test.module']).toBe(1);
+    expect(ctx.data['_apcore.mw.retry.count.test.module']).toBe(1);
 
     mw.onError('test.module', {}, err, ctx); // attempt 2
-    expect(ctx.data['_retry_count_test.module']).toBe(2);
+    expect(ctx.data['_apcore.mw.retry.count.test.module']).toBe(2);
 
     mw.onError('test.module', {}, err, ctx); // attempt 3
-    expect(ctx.data['_retry_count_test.module']).toBe(3);
+    expect(ctx.data['_apcore.mw.retry.count.test.module']).toBe(3);
 
     // 4th call exceeds maxRetries
     const result = mw.onError('test.module', {}, err, ctx);
@@ -53,7 +53,7 @@ describe('RetryMiddleware', () => {
     const ctx = makeContext();
     const err = new ModuleTimeoutError('test.module', 5000);
     mw.onError('test.module', {}, err, ctx);
-    expect(ctx.data['_retry_delay_ms_test.module']).toBe(200);
+    expect(ctx.data['_apcore.mw.retry.delay_ms.test.module']).toBe(200);
   });
 
   it('uses exponential backoff by default', () => {
@@ -62,13 +62,13 @@ describe('RetryMiddleware', () => {
     const err = new ModuleTimeoutError('test.module', 5000);
 
     mw.onError('test.module', {}, err, ctx);
-    expect(ctx.data['_retry_delay_ms_test.module']).toBe(100); // 100 * 2^0
+    expect(ctx.data['_apcore.mw.retry.delay_ms.test.module']).toBe(100); // 100 * 2^0
 
     mw.onError('test.module', {}, err, ctx);
-    expect(ctx.data['_retry_delay_ms_test.module']).toBe(200); // 100 * 2^1
+    expect(ctx.data['_apcore.mw.retry.delay_ms.test.module']).toBe(200); // 100 * 2^1
 
     mw.onError('test.module', {}, err, ctx);
-    expect(ctx.data['_retry_delay_ms_test.module']).toBe(400); // 100 * 2^2
+    expect(ctx.data['_apcore.mw.retry.delay_ms.test.module']).toBe(400); // 100 * 2^2
   });
 
   it('caps delay at maxDelayMs', () => {
@@ -79,6 +79,6 @@ describe('RetryMiddleware', () => {
     mw.onError('test.module', {}, err, ctx); // 1000
     mw.onError('test.module', {}, err, ctx); // 2000
     mw.onError('test.module', {}, err, ctx); // capped at 2000
-    expect(ctx.data['_retry_delay_ms_test.module']).toBe(2000);
+    expect(ctx.data['_apcore.mw.retry.delay_ms.test.module']).toBe(2000);
   });
 });

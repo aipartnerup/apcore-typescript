@@ -131,7 +131,7 @@ export class ACLDeniedError extends ModuleError {
       options?.cause,
       options?.traceId,
       options?.retryable,
-      options?.aiGuidance,
+      options?.aiGuidance ?? `Access denied for '${callerId}' calling '${targetId}'. Verify the caller has the required role or permission, or try an alternative module with similar functionality.`,
       options?.userFixable,
       options?.suggestion,
     );
@@ -158,7 +158,7 @@ export class ModuleNotFoundError extends ModuleError {
       options?.cause,
       options?.traceId,
       options?.retryable,
-      options?.aiGuidance,
+      options?.aiGuidance ?? `Module '${moduleId}' does not exist in the registry. Verify the module ID spelling. Use system.manifest.full to list available modules.`,
       options?.userFixable,
       options?.suggestion,
     );
@@ -177,7 +177,7 @@ export class ModuleDisabledError extends ModuleError {
       options?.cause,
       options?.traceId,
       options?.retryable,
-      options?.aiGuidance,
+      options?.aiGuidance ?? `Module '${moduleId}' is currently disabled. Use system.control.toggle_feature to re-enable it, or find an alternative module.`,
       options?.userFixable,
       options?.suggestion,
     );
@@ -196,7 +196,7 @@ export class ModuleTimeoutError extends ModuleError {
       options?.cause,
       options?.traceId,
       options?.retryable,
-      options?.aiGuidance,
+      options?.aiGuidance ?? `Module '${moduleId}' timed out after ${timeoutMs}ms. Consider: 1) Breaking the operation into smaller steps. 2) Reducing the input data size. 3) Asking the user if a longer timeout is acceptable.`,
       options?.userFixable,
       options?.suggestion,
     );
@@ -227,7 +227,7 @@ export class SchemaValidationError extends ModuleError {
       options?.cause,
       options?.traceId,
       options?.retryable,
-      options?.aiGuidance,
+      options?.aiGuidance ?? 'Input validation failed. Review the error details to identify which fields have invalid values, then correct them or ask the user for valid input.',
       options?.userFixable,
       options?.suggestion,
     );
@@ -293,7 +293,7 @@ export class CallDepthExceededError extends ModuleError {
       options?.cause,
       options?.traceId,
       options?.retryable,
-      options?.aiGuidance,
+      options?.aiGuidance ?? `Call depth ${depth} exceeds maximum ${maxDepth}. Simplify the module call chain or restructure to reduce nesting depth.`,
       options?.userFixable,
       options?.suggestion,
     );
@@ -320,7 +320,7 @@ export class CircularCallError extends ModuleError {
       options?.cause,
       options?.traceId,
       options?.retryable,
-      options?.aiGuidance,
+      options?.aiGuidance ?? 'A circular call was detected in the module call chain. Review the call_chain in error details and restructure to eliminate the cycle.',
       options?.userFixable,
       options?.suggestion,
     );
@@ -736,6 +736,7 @@ export const ErrorCodes = Object.freeze({
   MODULE_TIMEOUT: "MODULE_TIMEOUT",
   MODULE_LOAD_ERROR: "MODULE_LOAD_ERROR",
   RELOAD_FAILED: "RELOAD_FAILED",
+  EXECUTION_CANCELLED: "EXECUTION_CANCELLED",
   MODULE_EXECUTE_ERROR: "MODULE_EXECUTE_ERROR",
   SCHEMA_VALIDATION_ERROR: "SCHEMA_VALIDATION_ERROR",
   SCHEMA_NOT_FOUND: "SCHEMA_NOT_FOUND",

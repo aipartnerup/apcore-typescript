@@ -29,8 +29,8 @@ describe('Executor global timeout', () => {
     const exec = new Executor({ registry: reg, config });
 
     await exec.call('test.mod');
-    expect(capturedData['_global_deadline']).toBeDefined();
-    expect(typeof capturedData['_global_deadline']).toBe('number');
+    expect(capturedData['_apcore.executor.global_deadline']).toBeDefined();
+    expect(typeof capturedData['_apcore.executor.global_deadline']).toBe('number');
   });
 
   it('inherits _global_deadline in nested calls', async () => {
@@ -41,7 +41,7 @@ describe('Executor global timeout', () => {
     reg.register('outer', {
       id: 'outer',
       execute: async (_inputs: Record<string, unknown>, ctx: Context) => {
-        outerDeadline = ctx.data['_global_deadline'] as number;
+        outerDeadline = ctx.data['_apcore.executor.global_deadline'] as number;
         // Simulate a nested call by calling inner via executor
         const executor = ctx.executor as Executor;
         return executor.call('inner', {}, ctx);
@@ -50,7 +50,7 @@ describe('Executor global timeout', () => {
     reg.register('inner', {
       id: 'inner',
       execute: (_inputs: Record<string, unknown>, ctx: Context) => {
-        innerDeadline = ctx.data['_global_deadline'] as number;
+        innerDeadline = ctx.data['_apcore.executor.global_deadline'] as number;
         return { ok: true };
       },
     });
@@ -95,7 +95,7 @@ describe('Executor global timeout', () => {
     const exec = new Executor({ registry: reg, config });
 
     await exec.call('test.mod');
-    expect(capturedData['_global_deadline']).toBeUndefined();
+    expect(capturedData['_apcore.executor.global_deadline']).toBeUndefined();
   });
 
   it('stream() also sets _global_deadline', async () => {
@@ -116,7 +116,7 @@ describe('Executor global timeout', () => {
     for await (const chunk of exec.stream('test.stream')) {
       chunks.push(chunk);
     }
-    expect(capturedData['_global_deadline']).toBeDefined();
-    expect(typeof capturedData['_global_deadline']).toBe('number');
+    expect(capturedData['_apcore.executor.global_deadline']).toBeDefined();
+    expect(typeof capturedData['_apcore.executor.global_deadline']).toBe('number');
   });
 });

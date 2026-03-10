@@ -16,7 +16,7 @@ export { Executor, redactSensitive, REDACTED_VALUE, CTX_GLOBAL_DEADLINE, CTX_TRA
 
 // Module types
 export { DEFAULT_ANNOTATIONS, createPreflightResult } from './module.js';
-export type { ModuleAnnotations, ModuleExample, ValidationResult, PreflightCheckResult, PreflightResult, Module } from './module.js';
+export type { ModuleAnnotations, ModuleExample, ModuleDescription, ValidationResult, PreflightCheckResult, PreflightResult, Module } from './module.js';
 
 // Config
 export { Config } from './config.js';
@@ -160,4 +160,4 @@ export type { UsageRecord, CallerUsageSummary, HourlyBucket, ModuleUsageSummary,
 export { TraceContext } from './trace-context.js';
 export type { TraceParent } from './trace-context.js';
 
-export const VERSION = '0.11.0';
+export const VERSION = '0.12.0';

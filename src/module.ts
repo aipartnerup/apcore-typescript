@@ -39,6 +39,7 @@ export interface PreflightCheckResult {
   readonly check: string;
   readonly passed: boolean;
   readonly error?: Record<string, unknown>;
+  readonly warnings?: string[];
 }
 
 export interface PreflightResult {
@@ -68,8 +69,20 @@ export interface Module {
   stream?(inputs: Record<string, unknown>, context: Context): AsyncGenerator<Record<string, unknown>>;
   /** Optional: Custom input validation without execution. */
   validate?(inputs: Record<string, unknown>): ValidationResult | Promise<ValidationResult>;
+  /** Optional: Domain-specific pre-execution warnings (called by Executor.validate() Check 7). Advisory only — warnings do NOT block execution. */
+  preflight?(inputs: Record<string, unknown>, context: Context): string[] | Promise<string[]>;
+  /** Optional: Return module description for LLM/AI tool discovery. */
+  describe?(): ModuleDescription | Promise<ModuleDescription>;
   /** Optional: Called when module is loaded into the registry. */
   onLoad?(): void | Promise<void>;
   /** Optional: Called when module is unloaded from the registry. */
   onUnload?(): void | Promise<void>;
+}
+
+export interface ModuleDescription {
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema: Record<string, unknown>;
+  readonly annotations: ModuleAnnotations;
+  readonly examples: ModuleExample[];
 }

@@ -236,12 +236,12 @@ describe('Context.toJSON() / Context.fromJSON()', () => {
   it('toJSON excludes internal keys starting with _', () => {
     const ctx = Context.create();
     ctx.data['visible'] = 'yes';
-    ctx.data['_tracing_spans'] = [1, 2, 3];
+    ctx.data['_apcore.mw.tracing.spans'] = [1, 2, 3];
     ctx.data['_internal'] = 42;
     const serialized = ctx.toJSON();
     const data = serialized.data as Record<string, unknown>;
     expect(data['visible']).toBe('yes');
-    expect(data['_tracing_spans']).toBeUndefined();
+    expect(data['_apcore.mw.tracing.spans']).toBeUndefined();
     expect(data['_internal']).toBeUndefined();
   });
 

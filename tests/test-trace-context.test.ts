@@ -51,7 +51,7 @@ describe('TraceContext.inject()', () => {
       status: 'ok',
       events: [],
     };
-    ctx.data['_tracing_spans'] = [fakeSpan];
+    ctx.data['_apcore.mw.tracing.spans'] = [fakeSpan];
 
     const headers = TraceContext.inject(ctx);
     const parts = headers.traceparent.split('-');

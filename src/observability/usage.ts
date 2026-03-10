@@ -237,7 +237,7 @@ export class UsageCollector {
   }
 }
 
-const CTX_USAGE_STARTS = '_usage_starts';
+const CTX_USAGE_STARTS = '_apcore.mw.usage.starts';
 
 /**
  * Middleware that records module call usage via UsageCollector.

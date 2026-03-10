@@ -508,7 +508,7 @@ describe('ApprovalAuditEvents', () => {
 
     try {
       const ctx = Context.create(executor);
-      ctx.data['_tracing_spans'] = [mockSpan];
+      ctx.data['_apcore.mw.tracing.spans'] = [mockSpan];
       await executor.call('test.approval_required', {}, ctx);
 
       expect(mockSpanEvents).toHaveLength(1);
@@ -533,7 +533,7 @@ describe('ApprovalAuditEvents', () => {
 
     try {
       const ctx = Context.create(executor);
-      ctx.data['_tracing_spans'] = [mockSpan];
+      ctx.data['_apcore.mw.tracing.spans'] = [mockSpan];
 
       await expect(executor.call('test.approval_required', {}, ctx)).rejects.toThrow(ApprovalDeniedError);
 

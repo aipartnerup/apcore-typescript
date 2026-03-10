@@ -164,7 +164,7 @@ export class TracingMiddleware extends Middleware {
   }
 
   private _shouldSample(context: Context): boolean {
-    const existing = context.data['_tracing_sampled'];
+    const existing = context.data['_apcore.mw.tracing.sampled'];
     if (typeof existing === 'boolean') return existing;
 
     let decision: boolean;
@@ -176,7 +176,7 @@ export class TracingMiddleware extends Middleware {
       decision = Math.random() < this._samplingRate;
     }
 
-    context.data['_tracing_sampled'] = decision;
+    context.data['_apcore.mw.tracing.sampled'] = decision;
     return decision;
   }
 
@@ -187,8 +187,8 @@ export class TracingMiddleware extends Middleware {
   ): null {
     this._shouldSample(context);
 
-    const spansStack = (context.data['_tracing_spans'] as Span[]) ?? [];
-    context.data['_tracing_spans'] = spansStack;
+    const spansStack = (context.data['_apcore.mw.tracing.spans'] as Span[]) ?? [];
+    context.data['_apcore.mw.tracing.spans'] = spansStack;
     const parentSpanId = spansStack.length > 0 ? spansStack[spansStack.length - 1].spanId : null;
 
     const span = createSpan({
@@ -212,7 +212,7 @@ export class TracingMiddleware extends Middleware {
     _output: Record<string, unknown>,
     context: Context,
   ): null {
-    const spansStack = (context.data['_tracing_spans'] as Span[]) ?? [];
+    const spansStack = (context.data['_apcore.mw.tracing.spans'] as Span[]) ?? [];
     if (spansStack.length === 0) return null;
 
     const span = spansStack.pop()!;
@@ -221,7 +221,7 @@ export class TracingMiddleware extends Middleware {
     span.attributes['duration_ms'] = (span.endTime - span.startTime) * 1000;
     span.attributes['success'] = true;
 
-    if (context.data['_tracing_sampled']) {
+    if (context.data['_apcore.mw.tracing.sampled']) {
       this._exporter.export(span);
     }
     return null;
@@ -233,7 +233,7 @@ export class TracingMiddleware extends Middleware {
     error: Error,
     context: Context,
   ): null {
-    const spansStack = (context.data['_tracing_spans'] as Span[]) ?? [];
+    const spansStack = (context.data['_apcore.mw.tracing.spans'] as Span[]) ?? [];
     if (spansStack.length === 0) return null;
 
     const span = spansStack.pop()!;
@@ -244,7 +244,7 @@ export class TracingMiddleware extends Middleware {
     span.attributes['error_code'] = (error as unknown as Record<string, unknown>)['code'] ?? error.constructor.name;
 
     const shouldExport =
-      this._samplingStrategy === 'error_first' || context.data['_tracing_sampled'];
+      this._samplingStrategy === 'error_first' || context.data['_apcore.mw.tracing.sampled'];
     if (shouldExport) {
       this._exporter.export(span);
     }

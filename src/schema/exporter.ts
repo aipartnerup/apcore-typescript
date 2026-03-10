@@ -67,7 +67,7 @@ export class SchemaExporter {
   ): Record<string, unknown> {
     const schema = deepCopy(schemaDef.inputSchema);
     applyLlmDescriptions(schema);
-    stripExtensions(schema);
+    stripExtensions(schema, false);
     const result: Record<string, unknown> = {
       name: schemaDef.moduleId.replace(/\./g, '_'),
       description: schemaDef.description,

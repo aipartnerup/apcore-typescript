@@ -150,7 +150,7 @@ describe('MetricsMiddleware', () => {
     const collector = new MetricsCollector();
     const mw = new MetricsMiddleware(collector);
     const ctx = new Context('trace-id', null, [], null, null);
-    ctx.data['_metrics_starts'] = [];
+    ctx.data['_apcore.mw.metrics.starts'] = [];
 
     const result = mw.after('mod.a', {}, { result: 'ok' }, ctx);
 
@@ -175,7 +175,7 @@ describe('MetricsMiddleware', () => {
     const collector = new MetricsCollector();
     const mw = new MetricsMiddleware(collector);
     const ctx = new Context('trace-id', null, [], null, null);
-    ctx.data['_metrics_starts'] = [];
+    ctx.data['_apcore.mw.metrics.starts'] = [];
 
     const result = mw.onError('mod.a', {}, new Error('boom'), ctx);
 

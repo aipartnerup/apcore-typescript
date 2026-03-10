@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-03-10
+
+### Added
+- **`Module.preflight()`** — Optional method for domain-specific pre-execution warnings (spec §5.6)
+- **`Module.describe()`** — Optional method returning `ModuleDescription` for LLM/AI tool discovery (spec §5.6)
+- **`ModuleDescription`** interface — Typed return type for `Module.describe()`, exported from package index
+
+### Changed
+- **`ExecutionCancelledError`** now extends `ModuleError` (was bare `Error`) with error code `EXECUTION_CANCELLED`, aligning with PROTOCOL_SPEC §8.7 error hierarchy
+- **`ErrorCodes`** — Added `EXECUTION_CANCELLED` constant
+
+### Fixed
+- **Removed phantom CHANGELOG entry** — `ModuleAnnotations.batchProcessing` (v0.4.0) was never implemented
+
+---
+
 ## [0.11.0] - 2026-03-08
 
 ### Added
@@ -235,7 +251,6 @@ Built-in `system.*` modules that allow AI agents to query, monitor
 - Improved performance of `Executor.stream()` with optimized buffering.
 
 ### Added
-- Introduced `ModuleAnnotations.batchProcessing` for enhanced batch processing capabilities.
 - Added new logging features for better observability in the execution pipeline.
 - **ExtensionManager** and **ExtensionPoint** exports for unified extension point management (discoverer, middleware, acl, span_exporter, module_validator)
 - **AsyncTaskManager**, **TaskStatus**, **TaskInfo** exports for async task execution with status tracking (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED) and cancellation

@@ -2,9 +2,11 @@
  * Cooperative cancellation support for apcore module execution.
  */
 
-export class ExecutionCancelledError extends Error {
+import { ModuleError } from './errors.js';
+
+export class ExecutionCancelledError extends ModuleError {
   constructor(message: string = "Execution was cancelled") {
-    super(message);
+    super("EXECUTION_CANCELLED", message);
     this.name = "ExecutionCancelledError";
   }
 }

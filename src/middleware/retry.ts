@@ -7,8 +7,8 @@ import type { ModuleError } from '../errors.js';
 import { Middleware } from './base.js';
 
 /** Well-known context.data key prefixes for retry state. */
-export const CTX_RETRY_COUNT_PREFIX = '_retry_count_';
-export const CTX_RETRY_DELAY_PREFIX = '_retry_delay_ms_';
+export const CTX_RETRY_COUNT_PREFIX = '_apcore.mw.retry.count.';
+export const CTX_RETRY_DELAY_PREFIX = '_apcore.mw.retry.delay_ms.';
 
 export interface RetryConfig {
   maxRetries: number;

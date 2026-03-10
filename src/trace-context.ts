@@ -27,7 +27,7 @@ export class TraceContext {
   static inject(context: Context): Record<string, string> {
     const traceIdHex = context.traceId.replace(/-/g, '');
 
-    const spansStack = context.data['_tracing_spans'] as Span[] | undefined;
+    const spansStack = context.data['_apcore.mw.tracing.spans'] as Span[] | undefined;
     let parentId: string;
     if (spansStack && spansStack.length > 0) {
       parentId = spansStack[spansStack.length - 1].spanId;

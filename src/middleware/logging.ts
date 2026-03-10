@@ -43,7 +43,7 @@ export class LoggingMiddleware extends Middleware {
     inputs: Record<string, unknown>,
     context: Context,
   ): null {
-    context.data['_logging_mw_start'] = performance.now();
+    context.data['_apcore.mw.logging.start_time'] = performance.now();
 
     if (this._logInputs) {
       const redacted = context.redactedInputs ?? inputs;
@@ -64,7 +64,7 @@ export class LoggingMiddleware extends Middleware {
     output: Record<string, unknown>,
     context: Context,
   ): null {
-    const startTime = (context.data['_logging_mw_start'] as number) ?? performance.now();
+    const startTime = (context.data['_apcore.mw.logging.start_time'] as number) ?? performance.now();
     const durationMs = performance.now() - startTime;
 
     if (this._logOutputs) {

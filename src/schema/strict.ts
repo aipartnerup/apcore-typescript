@@ -43,12 +43,12 @@ export function applyLlmDescriptions(node: unknown): void {
   }
 }
 
-export function stripExtensions(node: unknown): void {
+export function stripExtensions(node: unknown, stripDefaults: boolean = true): void {
   if (typeof node !== 'object' || node === null || Array.isArray(node)) return;
 
   const obj = node as Record<string, unknown>;
   const keysToRemove = Object.keys(obj).filter(
-    (k) => (typeof k === 'string' && k.startsWith('x-')) || k === 'default',
+    (k) => (typeof k === 'string' && k.startsWith('x-')) || (stripDefaults && k === 'default'),
   );
   for (const k of keysToRemove) {
     delete obj[k];
@@ -59,11 +59,11 @@ export function stripExtensions(node: unknown): void {
       if (Array.isArray(value)) {
         for (const item of value) {
           if (typeof item === 'object' && item !== null) {
-            stripExtensions(item);
+            stripExtensions(item, stripDefaults);
           }
         }
       } else {
-        stripExtensions(value);
+        stripExtensions(value, stripDefaults);
       }
     }
   }

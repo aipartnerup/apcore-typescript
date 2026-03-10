@@ -51,7 +51,7 @@ describe('LoggingMiddleware', () => {
       const mw = new LoggingMiddleware({ logger });
       const ctx = makeContext();
       mw.before('mod', {}, ctx);
-      expect(typeof ctx.data['_logging_mw_start']).toBe('number');
+      expect(typeof ctx.data['_apcore.mw.logging.start_time']).toBe('number');
     });
 
     it('uses redacted inputs when available', () => {
@@ -70,7 +70,7 @@ describe('LoggingMiddleware', () => {
       const logger = makeLogger();
       const mw = new LoggingMiddleware({ logger, logOutputs: true });
       const ctx = makeContext('my.module');
-      ctx.data['_logging_mw_start'] = performance.now() - 100;
+      ctx.data['_apcore.mw.logging.start_time'] = performance.now() - 100;
       const result = mw.after('my.module', {}, { result: 'ok' }, ctx);
       expect(result).toBeNull();
       expect(logger.infoCalls).toHaveLength(1);
