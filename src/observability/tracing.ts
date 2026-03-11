@@ -125,8 +125,8 @@ export class OTLPExporter implements SpanExporter {
         ...this._headers,
       },
       body: JSON.stringify(payload),
-    }).catch(() => {
-      // Silently ignore network errors
+    }).catch((err: unknown) => {
+      console.warn('[apcore:tracing] OTLP export failed:', err);
     });
   }
 }

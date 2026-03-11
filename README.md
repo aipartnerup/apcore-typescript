@@ -128,7 +128,7 @@ src/
   cancel.ts             # Cancellation token support
   decorator.ts          # FunctionModule class and helpers
   bindings.ts           # YAML binding loader
-  errors.ts             # Error hierarchy (35 typed errors)
+  errors.ts             # Error hierarchy (36 typed errors)
   error-code-registry.ts # Custom error code registration with collision detection
   extensions.ts         # Extension manager
   module.ts             # Module types and annotations

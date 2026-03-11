@@ -65,7 +65,7 @@ export class RetryMiddleware extends Middleware {
     const delayMs = this._calculateDelay(retryCount);
     context.data[retryKey] = retryCount + 1;
 
-    console.info(
+    console.warn(
       `[apcore:retry] Retrying module '${moduleId}' (attempt ${retryCount + 1}/${this._config.maxRetries}) after ${Math.round(delayMs)}ms`,
     );
 

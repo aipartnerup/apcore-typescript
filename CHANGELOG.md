@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.12.0] - 2026-03-10
+## [0.12.0] - 2026-03-11
 
 ### Added
 - **`Module.preflight()`** — Optional method for domain-specific pre-execution warnings (spec §5.6)
@@ -81,7 +81,7 @@ Built-in `system.*` modules that allow AI agents to query, monitor
 - **Optional methods** added to `Module` interface: `stream?()`, `validate?()`, `onLoad?()`, `onUnload?()`.
 
 #### Error Hierarchy
-- **`NotImplementedError`** — New error class for `GENERAL_NOT_IMPLEMENTED` code.
+- **`FeatureNotImplementedError`** — New error class for `GENERAL_NOT_IMPLEMENTED` code.
 - **`DependencyNotFoundError`** — New error class for `DEPENDENCY_NOT_FOUND` code.
 
 ### Changed
@@ -427,6 +427,7 @@ Built-in `system.*` modules that allow AI agents to query, monitor
 
 ---
 
+[0.12.0]: https://github.com/aipartnerup/apcore-typescript/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/aipartnerup/apcore-typescript/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/aipartnerup/apcore-typescript/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/aipartnerup/apcore-typescript/compare/v0.8.0...v0.9.0

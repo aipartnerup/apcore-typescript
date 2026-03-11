@@ -27,7 +27,7 @@ import {
 import { AfterMiddleware, BeforeMiddleware, Middleware } from './middleware/index.js';
 import { MiddlewareChainError, MiddlewareManager } from './middleware/manager.js';
 import { guardCallChain } from './utils/call-chain.js';
-import type { ModuleAnnotations, PreflightCheckResult, PreflightResult } from './module.js';
+import type { Module, ModuleAnnotations, PreflightCheckResult, PreflightResult } from './module.js';
 import { DEFAULT_ANNOTATIONS, createPreflightResult } from './module.js';
 import { MODULE_ID_PATTERN } from './registry/registry.js';
 import type { Registry } from './registry/registry.js';
@@ -554,9 +554,10 @@ export class Executor {
     }
 
     // Check 7: module-level preflight (optional)
-    if (typeof (mod as any).preflight === 'function') {
+    const modWithPreflight = mod as { preflight?: Module['preflight'] };
+    if (typeof modWithPreflight.preflight === 'function') {
       try {
-        const preflightWarnings = (mod as any).preflight(effectiveInputs, ctx);
+        const preflightWarnings = modWithPreflight.preflight(effectiveInputs, ctx);
         if (Array.isArray(preflightWarnings) && preflightWarnings.length > 0) {
           checks.push({ check: 'module_preflight', passed: true, warnings: preflightWarnings });
         } else {
@@ -642,7 +643,7 @@ export class Executor {
 
   /** Emit an audit event for the approval decision (logging + span event). */
   private _emitApprovalEvent(result: ApprovalResult, moduleId: string, ctx: Context): void {
-    console.info(
+    console.warn(
       `[apcore:executor] Approval decision: module=${moduleId} status=${result.status} approved_by=${result.approvedBy} reason=${result.reason}`,
     );
 

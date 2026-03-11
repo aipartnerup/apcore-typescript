@@ -2,7 +2,6 @@
  * Schema query and export functions for the registry system.
  */
 
-import type { TSchema } from '@sinclair/typebox';
 import yaml from 'js-yaml';
 import type { ModuleAnnotations, ModuleExample } from '../module.js';
 import { InvalidInputError, ModuleNotFoundError } from '../errors.js';

@@ -45,18 +45,15 @@ export class WebhookSubscriber implements EventSubscriber {
     let lastError: unknown = null;
 
     for (let attempt = 0; attempt < attempts; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this._timeoutMs);
       try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), this._timeoutMs);
-
         const response = await fetch(this._url, {
           method: 'POST',
           headers: mergedHeaders,
           body: JSON.stringify(payload),
           signal: controller.signal,
         });
-
-        clearTimeout(timer);
 
         if (response.status < 500) {
           if (response.status >= 400) {
@@ -81,6 +78,8 @@ export class WebhookSubscriber implements EventSubscriber {
           `Webhook ${this._url} failed (attempt ${attempt + 1}/${attempts}):`,
           err,
         );
+      } finally {
+        clearTimeout(timer);
       }
     }
 
@@ -145,18 +144,15 @@ export class A2ASubscriber implements EventSubscriber {
       }
     }
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this._timeoutMs);
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this._timeoutMs);
-
       const response = await fetch(this._platformUrl, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
-
-      clearTimeout(timer);
 
       if (response.status >= 400) {
         console.warn(
@@ -170,6 +166,8 @@ export class A2ASubscriber implements EventSubscriber {
         `A2A delivery to ${this._platformUrl} failed for event ${event.eventType}:`,
         err,
       );
+    } finally {
+      clearTimeout(timer);
     }
   }
 }

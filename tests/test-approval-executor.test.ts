@@ -431,7 +431,7 @@ describe('ApprovalAuditEvents', () => {
   it('emits audit log on approved', async () => {
     const registry = createTestRegistry();
     const executor = new Executor({ registry, approvalHandler: new AutoApproveHandler() });
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await executor.call('test.approval_required');
       const approvalLogs = infoSpy.mock.calls.filter(
@@ -448,7 +448,7 @@ describe('ApprovalAuditEvents', () => {
   it('emits audit log on denied', async () => {
     const registry = createTestRegistry();
     const executor = new Executor({ registry, approvalHandler: new AlwaysDenyHandler() });
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await expect(executor.call('test.approval_required')).rejects.toThrow(ApprovalDeniedError);
       const approvalLogs = infoSpy.mock.calls.filter(
@@ -467,7 +467,7 @@ describe('ApprovalAuditEvents', () => {
       createApprovalResult({ status: 'pending', approvalId: 'tok-123' }),
     );
     const executor = new Executor({ registry, approvalHandler: handler });
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await expect(executor.call('test.approval_required')).rejects.toThrow(ApprovalPendingError);
       const approvalLogs = infoSpy.mock.calls.filter(
@@ -483,7 +483,7 @@ describe('ApprovalAuditEvents', () => {
   it('does not emit audit log when gate is skipped', async () => {
     const registry = createTestRegistry();
     const executor = new Executor({ registry });
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await executor.call('test.approval_required');
       const approvalLogs = infoSpy.mock.calls.filter(
@@ -504,7 +504,7 @@ describe('ApprovalAuditEvents', () => {
       createApprovalResult({ status: 'approved', approvedBy: 'test-user', reason: 'looks good' }),
     );
     const executor = new Executor({ registry, approvalHandler: handler });
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     try {
       const ctx = Context.create(executor);
@@ -529,7 +529,7 @@ describe('ApprovalAuditEvents', () => {
     const mockSpan = { events: mockSpanEvents };
 
     const executor = new Executor({ registry, approvalHandler: new AlwaysDenyHandler() });
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     try {
       const ctx = Context.create(executor);
@@ -547,7 +547,7 @@ describe('ApprovalAuditEvents', () => {
   it('works without tracing spans', async () => {
     const registry = createTestRegistry();
     const executor = new Executor({ registry, approvalHandler: new AutoApproveHandler() });
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const result = await executor.call('test.approval_required');
       expect(result['status']).toBe('executed');
