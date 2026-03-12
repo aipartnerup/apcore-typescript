@@ -1,6 +1,6 @@
 /**
- * Comprehensive lifecycle integration tests verifying the complete 11-step
- * execution pipeline with ALL features enabled simultaneously.
+ * Comprehensive lifecycle integration tests verifying the complete execution pipeline
+ * with ALL features enabled simultaneously.
  */
 
 import { describe, it, expect } from 'vitest';

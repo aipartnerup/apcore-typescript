@@ -15,7 +15,7 @@ apcore is an AI-Perceivable module standard that makes every interface naturally
 ## Features
 
 - **Schema-driven modules** — Define input/output schemas with TypeBox for runtime validation
-- **Executor pipeline** — 11-step execution pipeline: context → safety checks → lookup → ACL → approval gate → validation → middleware before → execute → output validation → middleware after → return
+- **Executor pipeline** — Secured execution lifecycle: context → safety checks → lookup → ACL → approval gate → validation → middleware before → execute → output validation → middleware after → return
 - **Registry system** — File-based module discovery with metadata, dependencies, and topological ordering
 - **Binding loader** — YAML-based module registration for no-code integration
 - **Access control (ACL)** — Pattern-based rules with identity types, roles, and call-depth conditions
@@ -124,7 +124,7 @@ The `examples/` directory contains runnable examples demonstrating key features:
 src/
   index.ts              # Public API exports
   client.ts             # High-level APCore client (unified entry point)
-  executor.ts           # 11-step execution pipeline
+  executor.ts           # Secured execution lifecycle
   context.ts            # Execution context and identity
   config.ts             # Dot-path configuration accessor
   acl.ts                # Access control with pattern matching
