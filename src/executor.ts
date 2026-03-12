@@ -34,7 +34,7 @@ import type { Registry } from './registry/registry.js';
 
 export const REDACTED_VALUE: string = '***REDACTED***';
 
-/** Well-known context.data keys used internally by the framework. */
+/** Well-known context.data keys used internally by the runtime. */
 export const CTX_GLOBAL_DEADLINE = '_apcore.executor.global_deadline';
 export const CTX_TRACING_SPANS = '_apcore.mw.tracing.spans';
 

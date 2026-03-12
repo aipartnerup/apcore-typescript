@@ -152,7 +152,7 @@ export class Context<T = null> {
 }
 
 /**
- * Interface for creating Context from framework-specific requests.
+ * Interface for creating Context from runtime-specific requests.
  *
  * Web framework integrations should implement this to extract Identity
  * from HTTP requests (e.g., Express request, JWT tokens, API keys).

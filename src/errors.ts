@@ -1,5 +1,5 @@
 /**
- * Error hierarchy for the apcore framework.
+ * Error hierarchy for apcore.
  */
 
 export interface ErrorOptions {
