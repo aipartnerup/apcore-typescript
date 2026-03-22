@@ -1,6 +1,6 @@
 {
   "name": "apcore-js",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "AI-Perceivable Core — schema-driven module standard",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,11 +29,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/aipartnerup/apcore-typescript.git"
+    "url": "https://github.com/aiperceivable/apcore-typescript.git"
   },
-  "homepage": "https://aipartnerup.com",
+  "homepage": "https://aiperceivable.com",
   "bugs": {
-    "url": "https://github.com/aipartnerup/apcore-typescript/issues"
+    "url": "https://github.com/aiperceivable/apcore-typescript/issues"
   },
   "keywords": [
     "apcore",

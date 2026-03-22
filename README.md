@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/aipartnerup/apcore/main/apcore-logo.svg" alt="apcore logo" width="200"/>
+  <img src="https://raw.githubusercontent.com/aiperceivable/apcore/main/apcore-logo.svg" alt="apcore logo" width="200"/>
 </div>
 
 # apcore
@@ -28,7 +28,7 @@ apcore is an AI-Perceivable module standard that makes every interface naturally
 ## Documentation
 
 For full documentation, including Quick Start guides and API reference, visit:
-**[https://aipartnerup.github.io/apcore/getting-started.html](https://aipartnerup.github.io/apcore/getting-started.html)**
+**[https://aiperceivable.github.io/apcore/getting-started.html](https://aiperceivable.github.io/apcore/getting-started.html)**
 
 ## Requirements
 
@@ -315,11 +315,11 @@ npm run build
 
 ## Links
 
-- **Documentation:** [https://aipartnerup.github.io/apcore/getting-started.html](https://aipartnerup.github.io/apcore/getting-started.html)
-- **Specification:** [https://github.com/aipartnerup/apcore](https://github.com/aipartnerup/apcore)
-- **GitHub:** [https://github.com/aipartnerup/apcore-typescript](https://github.com/aipartnerup/apcore-typescript)
+- **Documentation:** [https://aiperceivable.github.io/apcore/getting-started.html](https://aiperceivable.github.io/apcore/getting-started.html)
+- **Specification:** [https://github.com/aiperceivable/apcore](https://github.com/aiperceivable/apcore)
+- **GitHub:** [https://github.com/aiperceivable/apcore-typescript](https://github.com/aiperceivable/apcore-typescript)
 - **npm:** [https://www.npmjs.com/package/apcore-js](https://www.npmjs.com/package/apcore-js)
-- **Issues:** [https://github.com/aipartnerup/apcore-typescript/issues](https://github.com/aipartnerup/apcore-typescript/issues)
+- **Issues:** [https://github.com/aiperceivable/apcore-typescript/issues](https://github.com/aiperceivable/apcore-typescript/issues)
 
 ## License
 
