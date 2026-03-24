@@ -5,10 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.13.2] - 2026-03-24
+## [0.14.0] - 2026-03-24
+
+### Breaking Changes
+- Middleware default priority changed from `0` to `100` per PROTOCOL_SPEC §11.2. Middleware without explicit priority will now execute before priority-0 middleware.
 
 ### Added
 - **Middleware priority** — `Middleware` base class now accepts `priority: number` (default 0). Higher priority executes first; equal priority preserves registration order. `BeforeMiddleware` and `AfterMiddleware` adapters also accept `priority`.
+- **Priority range validation** — `RangeError` thrown for values outside 0-1000
 
 ## [0.13.1] - 2026-03-22
 

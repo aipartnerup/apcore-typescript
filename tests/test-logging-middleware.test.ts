@@ -128,6 +128,13 @@ describe('LoggingMiddleware', () => {
     });
   });
 
+  describe('priority', () => {
+    it('has priority 700 (logging range)', () => {
+      const mw = new LoggingMiddleware();
+      expect(mw.priority).toBe(700);
+    });
+  });
+
   describe('defaults', () => {
     it('uses default logger when none provided', () => {
       const mw = new LoggingMiddleware();

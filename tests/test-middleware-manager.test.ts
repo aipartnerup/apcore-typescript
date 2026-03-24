@@ -10,7 +10,7 @@ function makeContext(): Context {
 class TaggingMiddleware extends Middleware {
   readonly tag: string;
 
-  constructor(tag: string, priority: number = 0) {
+  constructor(tag: string, priority: number = 100) {
     super(priority);
     this.tag = tag;
   }
@@ -205,10 +205,10 @@ describe('MiddlewareManager', () => {
       expect(result['trail']).toBe('FirstSecondThird');
     });
 
-    it('default priority (0) middleware is ordered after explicit priority', () => {
+    it('lower priority middleware is ordered after higher priority', () => {
       const mgr = new MiddlewareManager();
-      mgr.add(new TaggingMiddleware('Default'));
-      mgr.add(new TaggingMiddleware('Prioritized', 1));
+      mgr.add(new TaggingMiddleware('Default', 100));
+      mgr.add(new TaggingMiddleware('Prioritized', 101));
       const ctx = makeContext();
       const [result] = mgr.executeBefore('mod.test', { trail: '' }, ctx);
       expect(result['trail']).toBe('PrioritizedDefault');
@@ -225,9 +225,19 @@ describe('MiddlewareManager', () => {
       expect(result['trail']).toBe('LowMidHigh');
     });
 
-    it('Middleware base class defaults to priority 0', () => {
+    it('Middleware base class defaults to priority 100', () => {
       const mw = new Middleware();
-      expect(mw.priority).toBe(0);
+      expect(mw.priority).toBe(100);
+    });
+
+    it('throws RangeError for priority below 0', () => {
+      expect(() => new Middleware(-1)).toThrow(RangeError);
+      expect(() => new Middleware(-1)).toThrow('priority must be between 0 and 1000');
+    });
+
+    it('throws RangeError for priority above 1000', () => {
+      expect(() => new Middleware(1001)).toThrow(RangeError);
+      expect(() => new Middleware(1001)).toThrow('priority must be between 0 and 1000');
     });
 
     it('snapshot reflects priority-sorted order', () => {

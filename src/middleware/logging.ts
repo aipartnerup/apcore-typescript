@@ -31,7 +31,7 @@ export class LoggingMiddleware extends Middleware {
     logOutputs?: boolean;
     logErrors?: boolean;
   }) {
-    super();
+    super(700);
     this._logger = options?.logger ?? defaultLogger;
     this._logInputs = options?.logInputs ?? true;
     this._logOutputs = options?.logOutputs ?? true;

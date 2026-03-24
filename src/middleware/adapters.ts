@@ -21,7 +21,7 @@ export type AfterCallback = (
 export class BeforeMiddleware extends Middleware {
   private _callback: BeforeCallback;
 
-  constructor(callback: BeforeCallback, priority: number = 0) {
+  constructor(callback: BeforeCallback, priority: number = 100) {
     super(priority);
     this._callback = callback;
   }
@@ -38,7 +38,7 @@ export class BeforeMiddleware extends Middleware {
 export class AfterMiddleware extends Middleware {
   private _callback: AfterCallback;
 
-  constructor(callback: AfterCallback, priority: number = 0) {
+  constructor(callback: AfterCallback, priority: number = 100) {
     super(priority);
     this._callback = callback;
   }

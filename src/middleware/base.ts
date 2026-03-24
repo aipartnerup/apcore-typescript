@@ -11,7 +11,12 @@ export class Middleware {
    */
   readonly priority: number;
 
-  constructor(priority: number = 0) {
+  constructor(priority: number = 100) {
+    if (priority < 0 || priority > 1000) {
+      throw new RangeError(
+        `priority must be between 0 and 1000, got ${priority}`,
+      );
+    }
     this.priority = priority;
   }
 
