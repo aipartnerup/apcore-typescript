@@ -3,4 +3,5 @@ dist/
 coverage/
 *.tsbuildinfo
 *.d.ts.map
+src/generated/
 .DS_Store

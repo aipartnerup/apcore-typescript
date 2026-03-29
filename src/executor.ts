@@ -6,7 +6,9 @@
  */
 
 import type { TSchema } from '@sinclair/typebox';
+import { Kind } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
+import { jsonSchemaToTypeBox } from './schema/loader.js';
 import type { ACL } from './acl.js';
 import type { ApprovalHandler, ApprovalRequest, ApprovalResult } from './approval.js';
 import { createApprovalRequest } from './approval.js';
@@ -383,7 +385,7 @@ export class Executor {
     inputs: Record<string, unknown>,
     ctx: Context,
   ): Record<string, unknown> {
-    const inputSchema = mod['inputSchema'] as TSchema | undefined;
+    const inputSchema = this._resolveSchema(mod, 'inputSchema');
     if (inputSchema == null) return inputs;
 
     this._validateSchema(inputSchema, inputs, 'Input');
@@ -392,6 +394,15 @@ export class Executor {
       inputSchema as unknown as Record<string, unknown>,
     );
     return inputs;
+  }
+
+  private _resolveSchema(mod: Record<string, unknown>, key: string): TSchema | null {
+    const schema = mod[key] as TSchema | undefined;
+    if (schema == null) return null;
+    if (Kind in schema) return schema;
+    const converted = jsonSchemaToTypeBox(schema as unknown as Record<string, unknown>);
+    mod[key] = converted;
+    return converted;
   }
 
   private _validateSchema(
@@ -461,7 +472,7 @@ export class Executor {
   }
 
   private _validateOutput(mod: Record<string, unknown>, output: Record<string, unknown>): void {
-    const outputSchema = mod['outputSchema'] as TSchema | undefined;
+    const outputSchema = this._resolveSchema(mod, 'outputSchema');
     if (outputSchema != null) {
       this._validateSchema(outputSchema, output, 'Output');
     }

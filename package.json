@@ -1,6 +1,6 @@
 {
   "name": "apcore-js",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "AI-Perceivable Core — schema-driven module standard",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,7 +17,9 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "generate:version": "node scripts/generate-version.js",
+    "prepare": "node scripts/generate-version.js",
+    "build": "node scripts/generate-version.js && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

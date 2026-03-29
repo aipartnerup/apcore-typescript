@@ -106,6 +106,109 @@ describe('Executor', () => {
     await expect(executor.call('strict', { count: 'not-a-number' })).rejects.toThrow(SchemaValidationError);
   });
 
+  it('validates input when inputSchema is raw JSON Schema (not TypeBox)', async () => {
+    const registry = new Registry();
+    const rawJsonSchema = {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        age: { type: 'number' },
+      },
+      required: ['name', 'age'],
+    };
+    const mod = {
+      inputSchema: rawJsonSchema,
+      outputSchema: Type.Object({ ok: Type.Boolean() }),
+      description: 'Module with raw JSON Schema inputSchema',
+      execute: () => ({ ok: true }),
+    };
+    registry.register('raw_schema', mod);
+
+    const executor = new Executor({ registry });
+    // Valid input should succeed
+    const result = await executor.call('raw_schema', { name: 'Alice', age: 30 });
+    expect(result).toEqual({ ok: true });
+
+    // Invalid input should throw SchemaValidationError, not "Unknown type"
+    await expect(executor.call('raw_schema', { name: 'Alice', age: 'not-a-number' })).rejects.toThrow(SchemaValidationError);
+  });
+
+  it('validates output when outputSchema is raw JSON Schema (not TypeBox)', async () => {
+    const registry = new Registry();
+    const rawOutputSchema = {
+      type: 'object',
+      properties: {
+        count: { type: 'number' },
+      },
+      required: ['count'],
+    };
+    const mod = {
+      inputSchema: Type.Object({}),
+      outputSchema: rawOutputSchema,
+      description: 'Module with raw JSON Schema outputSchema',
+      execute: () => ({ count: 'not-a-number' }),
+    };
+    registry.register('raw_output', mod);
+
+    const executor = new Executor({ registry });
+    await expect(executor.call('raw_output', {})).rejects.toThrow(SchemaValidationError);
+  });
+
+  it('validates both input and output when both schemas are raw JSON Schema', async () => {
+    const registry = new Registry();
+    const mod = {
+      inputSchema: {
+        type: 'object',
+        properties: { x: { type: 'number' } },
+        required: ['x'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: { y: { type: 'number' } },
+        required: ['y'],
+      },
+      description: 'Both schemas are raw JSON Schema',
+      execute: (inputs: Record<string, unknown>) => ({ y: (inputs['x'] as number) * 2 }),
+    };
+    registry.register('dual_raw', mod);
+
+    const executor = new Executor({ registry });
+    // Valid round-trip
+    const result = await executor.call('dual_raw', { x: 5 });
+    expect(result).toEqual({ y: 10 });
+
+    // Invalid input
+    await expect(executor.call('dual_raw', { x: 'bad' })).rejects.toThrow(SchemaValidationError);
+  });
+
+  it('caches converted TypeBox schema on the module object after first call', async () => {
+    const registry = new Registry();
+    const rawSchema = {
+      type: 'object',
+      properties: { val: { type: 'string' } },
+      required: ['val'],
+    };
+    const mod = {
+      inputSchema: rawSchema,
+      outputSchema: Type.Object({ ok: Type.Boolean() }),
+      description: 'Cache test module',
+      execute: () => ({ ok: true }),
+    } as Record<string, unknown>;
+    registry.register('cache_test', mod);
+
+    const executor = new Executor({ registry });
+    await executor.call('cache_test', { val: 'a' });
+
+    // After first call, inputSchema should have been replaced with a TypeBox schema (has Kind symbol)
+    const { Kind: KindSymbol } = await import('@sinclair/typebox');
+    expect(KindSymbol in (mod['inputSchema'] as object)).toBe(true);
+
+    // Second call should reuse the same cached schema object
+    const cachedRef = mod['inputSchema'];
+    await executor.call('cache_test', { val: 'b' });
+    expect(mod['inputSchema']).toBe(cachedRef);
+  });
+
   it('enforces ACL deny', async () => {
     const registry = new Registry();
     registry.register('secret', createSimpleModule('secret'));
