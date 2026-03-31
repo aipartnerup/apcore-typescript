@@ -169,16 +169,16 @@ Two prefix conventions are supported:
 | Convention | Applies to | Example |
 |------------|------------|---------|
 | `APCORE_` + `KEY_PATH` (single `_` → `.`) | Legacy flat keys | `APCORE_EXECUTOR_DEFAULT_TIMEOUT=5000` |
-| `APCORE__` + namespace prefix (double `__`) | apcore sub-package namespaces | `APCORE__OBSERVABILITY_TRACING_ENABLED=true` |
+| `APCORE_` + namespace prefix | apcore sub-package namespaces | `APCORE_OBSERVABILITY_TRACING_ENABLED=true` |
 
 apcore pre-registers the following namespaces and env prefixes:
 
 | Namespace | Env prefix | Wraps |
 |-----------|-----------|-------|
-| `observability` | `APCORE__OBSERVABILITY` | `apcore.observability.*` keys |
-| `sysModules` | `APCORE__SYS` | `apcore.sys_modules.*` keys |
+| `observability` | `APCORE_OBSERVABILITY` | `apcore.observability.*` keys |
+| `sysModules` | `APCORE_SYS` | `apcore.sys_modules.*` keys |
 
-Third-party packages should use their own prefix (e.g. `APCORE__MCP` for apcore-mcp) to avoid collisions.
+Sub-packages use their own `APCORE_` prefixed name (e.g. `APCORE_MCP` for apcore-mcp). The longest-prefix-match dispatch algorithm disambiguates correctly.
 
 ### Hot Reload
 

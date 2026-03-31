@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2026-03-31
+
+### Changed
+
+- **Env prefix convention simplified** — Removed the `^APCORE_[A-Z0-9]` reservation rule from `Config.registerNamespace()`. Sub-packages now use single-underscore prefixes (`APCORE_MCP`, `APCORE_OBSERVABILITY`, `APCORE_SYS`) instead of the double-underscore form. Only the exact `APCORE` prefix is reserved for the core namespace.
+- Built-in namespace env prefixes: `APCORE__OBSERVABILITY` → `APCORE_OBSERVABILITY`, `APCORE__SYS` → `APCORE_SYS`.
+
+---
+
 ## [0.15.0] - 2026-03-30
 
 ### Added
@@ -15,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`Config.registerNamespace(name, options?)`** — Register a namespace on the global (class-level) registry shared across all `Config` instances. Options:
   - `schema?` — JSON Schema object for namespace-level validation
-  - `envPrefix?` — Environment variable prefix for this namespace (e.g. `'APCORE__MCP'`)
+  - `envPrefix?` — Environment variable prefix for this namespace (e.g. `'APCORE_MCP'`)
   - `defaults?` — Default values merged before file and env overrides
   - Late registration is permitted; call `config.reload()` afterward to apply defaults and env overrides
   - Throws `CONFIG_NAMESPACE_DUPLICATE` if the name is already registered
@@ -34,7 +43,7 @@ Config files now support a namespace mode when an `apcore:` top-level key is pre
 
 ##### Per-namespace environment variable overrides
 
-Each namespace declares its own `envPrefix`. The loader uses a longest-prefix-match dispatch algorithm to route env vars to the correct namespace. The `APCORE__` double-underscore convention distinguishes apcore sub-package prefixes (e.g. `APCORE__MCP`, `APCORE__OBSERVABILITY`) from the existing `APCORE_` flat-key prefix.
+Each namespace declares its own `envPrefix`. The loader uses a longest-prefix-match dispatch algorithm to route env vars to the correct namespace. Apcore sub-packages use `APCORE_` prefixed names (e.g. `APCORE_MCP`, `APCORE_OBSERVABILITY`); the longest-prefix-match dispatch disambiguates from the core `APCORE` flat-key prefix.
 
 ##### New error codes
 
@@ -50,8 +59,8 @@ Each namespace declares its own `envPrefix`. The loader uses a longest-prefix-ma
 
 apcore pre-registers two namespaces for its own subsystems:
 
-- **`observability`** (`APCORE__OBSERVABILITY`) — Wraps the existing `apcore.observability.*` flat keys (tracing, metrics, logging, errorHistory, platformNotify) into a dedicated namespace. Adapter packages (apcore-mcp, apcore-a2a, apcore-cli) should read from this namespace instead of maintaining independent logging defaults.
-- **`sysModules`** (`APCORE__SYS`) — Promotes `apcore.sys_modules.*` flat keys into a dedicated namespace. `registerSysModules()` prefers `config.namespace("sysModules")` in namespace mode and falls back to `config.get("sys_modules.*")` in legacy mode.
+- **`observability`** (`APCORE_OBSERVABILITY`) — Wraps the existing `apcore.observability.*` flat keys (tracing, metrics, logging, errorHistory, platformNotify) into a dedicated namespace. Adapter packages (apcore-mcp, apcore-a2a, apcore-cli) should read from this namespace instead of maintaining independent logging defaults.
+- **`sysModules`** (`APCORE_SYS`) — Promotes `apcore.sys_modules.*` flat keys into a dedicated namespace. `registerSysModules()` prefers `config.namespace("sysModules")` in namespace mode and falls back to `config.get("sys_modules.*")` in legacy mode.
 
 #### Error Formatter Registry (§8.8)
 

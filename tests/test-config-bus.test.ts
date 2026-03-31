@@ -74,12 +74,6 @@ describe('Config.registerNamespace', () => {
       .toThrow(ConfigNamespaceDuplicateError);
   });
 
-  it('throws ConfigEnvPrefixConflictError when envPrefix matches APCORE_[A-Z0-9] pattern', () => {
-    const name = 'test-ns-env-reserved-' + Date.now();
-    expect(() => Config.registerNamespace({ name, envPrefix: 'APCORE_SOMETHING' }))
-      .toThrow(ConfigEnvPrefixConflictError);
-  });
-
   it('throws ConfigEnvPrefixConflictError when envPrefix already used', () => {
     const uniquePrefix = 'MYAPP__NS_' + Date.now();
     const name1 = 'test-ns-pfx1-' + Date.now();
@@ -353,7 +347,7 @@ describe('Config namespace env dispatch', () => {
   });
 
   it('dispatches env var to the matching namespace by prefix', () => {
-    setEnv('APCORE__OBSERVABILITY_LOGGING_LEVEL', 'debug');
+    setEnv('APCORE_OBSERVABILITY_LOGGING_LEVEL', 'debug');
     const yamlPath = path.join(tmpDir, 'ns.yaml');
     fs.writeFileSync(yamlPath, 'apcore:\n  version: "1.0.0"\n');
     const cfg = Config.load(yamlPath, { validate: false });

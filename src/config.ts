@@ -125,8 +125,7 @@ const _globalNsRegistry = new Map<string, NamespaceRegistration>();
 const _RESERVED_NAMESPACES = new Set(['apcore', '_config']);
 const _envPrefixUsed = new Set<string>();
 
-/** Pattern that matches the APCORE_[A-Z0-9] reservation rule. */
-const APCORE_ENV_RESERVED_RE = /^APCORE_[A-Z0-9]/;
+
 
 // ---------------------------------------------------------------------------
 // Utility helpers
@@ -343,7 +342,7 @@ export class Config {
    * - ConfigNamespaceReservedError if name is in the reserved set.
    * - ConfigNamespaceDuplicateError if name is already registered.
    * - ConfigEnvPrefixConflictError if envPrefix is already used or matches the
-   *   APCORE_[A-Z0-9] pattern.
+   *   an already-registered prefix.
    */
   static registerNamespace(options: {
     name: string;
@@ -360,7 +359,7 @@ export class Config {
       throw new ConfigNamespaceDuplicateError(name);
     }
     if (envPrefix !== null) {
-      if (_envPrefixUsed.has(envPrefix) || APCORE_ENV_RESERVED_RE.test(envPrefix)) {
+      if (_envPrefixUsed.has(envPrefix)) {
         throw new ConfigEnvPrefixConflictError(envPrefix);
       }
     }
@@ -732,7 +731,7 @@ export class Config {
 // camelCase keys would silently diverge from cross-language YAML configs.
 Config.registerNamespace({
   name: 'observability',
-  envPrefix: 'APCORE__OBSERVABILITY',
+  envPrefix: 'APCORE_OBSERVABILITY',
   defaults: {
     tracing: { enabled: false, strategy: 'full', sampling_rate: 1.0, exporter: 'stdout', otlp_endpoint: null },
     metrics: { enabled: false, exporter: 'stdout' },
@@ -744,7 +743,7 @@ Config.registerNamespace({
 
 Config.registerNamespace({
   name: 'sys_modules',
-  envPrefix: 'APCORE__SYS',
+  envPrefix: 'APCORE_SYS',
   defaults: {
     enabled: true,
     health: { enabled: true },
