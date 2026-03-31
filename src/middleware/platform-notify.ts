@@ -77,7 +77,7 @@ export class PlatformNotifyMiddleware extends Middleware {
       this._emitter.emit(createEvent(
         'error_threshold_exceeded',
         moduleId,
-        'warning',
+        'error',
         { error_rate: errorRate, threshold: this._errorRateThreshold },
       ));
       alerted.add('error_rate');
@@ -94,8 +94,8 @@ export class PlatformNotifyMiddleware extends Middleware {
       this._emitter.emit(createEvent(
         'latency_threshold_exceeded',
         moduleId,
-        'warning',
-        { p99_latency_ms: p99Ms, threshold_ms: this._latencyP99ThresholdMs },
+        'warn',
+        { p99_latency_ms: p99Ms, threshold: this._latencyP99ThresholdMs },
       ));
       alerted.add('latency');
     }
@@ -112,6 +112,13 @@ export class PlatformNotifyMiddleware extends Middleware {
 
     const errorRate = this._computeErrorRate(moduleId);
     if (errorRate < this._errorRateThreshold * 0.5) {
+      // Emit canonical event first, then legacy alias for transition period
+      this._emitter.emit(createEvent(
+        'apcore.health.recovered',
+        moduleId,
+        'info',
+        { status: 'recovered', error_rate: errorRate },
+      ));
       this._emitter.emit(createEvent(
         'module_health_changed',
         moduleId,

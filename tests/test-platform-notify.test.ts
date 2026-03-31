@@ -129,7 +129,7 @@ describe('PlatformNotifyMiddleware', () => {
     const latencyEvents = events.filter(e => e.eventType === 'latency_threshold_exceeded');
     expect(latencyEvents).toHaveLength(1);
     expect(latencyEvents[0].moduleId).toBe('mod.a');
-    expect(latencyEvents[0].data['threshold_ms']).toBe(5000);
+    expect(latencyEvents[0].data['threshold']).toBe(5000);
   });
 
   it('does not emit latency alert when latency is below threshold', () => {
