@@ -426,7 +426,10 @@ export class Config {
     }
 
     const rawData = fileData as Record<string, unknown>;
-    const isNamespaceMode = 'apcore' in rawData;
+    // Namespace mode requires "apcore" key to be an object/mapping — not null, scalar, or array.
+    const apcoreValue = rawData['apcore'];
+    const isNamespaceMode = apcoreValue !== null && apcoreValue !== undefined &&
+      typeof apcoreValue === 'object' && !Array.isArray(apcoreValue);
 
     let config: Config;
 
