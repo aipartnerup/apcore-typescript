@@ -127,9 +127,13 @@ describe('UpdateConfigModule', () => {
       config.set('api.token', 'old_token');
       mod.execute({ key: 'api.token', value: 'new_token', reason: 'rotate' }, null);
 
-      expect(events).toHaveLength(1);
+      // Canonical event (apcore.config.updated) first, legacy alias (config_changed) second
+      expect(events).toHaveLength(2);
+      // Both events should carry redacted values
       expect(events[0].data['old_value']).toBe('***');
       expect(events[0].data['new_value']).toBe('***');
+      expect(events[1].data['old_value']).toBe('***');
+      expect(events[1].data['new_value']).toBe('***');
     });
 
     it('does not redact non-sensitive keys', () => {
@@ -148,6 +152,28 @@ describe('UpdateConfigModule', () => {
       expect(result.old_value).toBe('***');
       expect(result.new_value).toBe('***');
     });
+
+    it('redacts underscore-compound sensitive segments like api_key and auth_token', () => {
+      config.set('service.api_key', 'sk-old');
+      const r1 = mod.execute({ key: 'service.api_key', value: 'sk-new', reason: 'rotate' }, null);
+      expect(r1.old_value).toBe('***');
+      expect(r1.new_value).toBe('***');
+
+      config.set('provider.auth_token', 'tok-old');
+      const r2 = mod.execute({ key: 'provider.auth_token', value: 'tok-new', reason: 'rotate' }, null);
+      expect(r2.old_value).toBe('***');
+      expect(r2.new_value).toBe('***');
+    });
+
+    it('does not redact segments that merely contain sensitive words', () => {
+      // "keyboard" contains "key" and "authentication" contains "auth"
+      // but neither is a true sensitive compound segment
+      const r1 = mod.execute({ key: 'input.keyboard', value: 'us', reason: 'test' }, null);
+      expect(r1.old_value).not.toBe('***');
+
+      const r2 = mod.execute({ key: 'login.authentication', value: 'oauth', reason: 'test' }, null);
+      expect(r2.old_value).not.toBe('***');
+    });
   });
 
   describe('event emission', () => {
@@ -157,13 +183,16 @@ describe('UpdateConfigModule', () => {
 
       mod.execute({ key: 'some.name', value: 'updated', reason: 'test' }, null);
 
-      expect(events).toHaveLength(1);
-      expect(events[0].eventType).toBe('config_changed');
+      // Canonical event (apcore.config.updated) first, legacy alias (config_changed) second
+      expect(events).toHaveLength(2);
+      expect(events[0].eventType).toBe('apcore.config.updated');
       expect(events[0].moduleId).toBe('system.control.update_config');
       expect(events[0].severity).toBe('info');
       expect(events[0].data['key']).toBe('some.name');
       expect(events[0].data['old_value']).toBe('value');
       expect(events[0].data['new_value']).toBe('updated');
+      expect(events[1].eventType).toBe('config_changed');
+      expect(events[1].moduleId).toBe('system.control.update_config');
     });
   });
 });

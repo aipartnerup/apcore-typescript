@@ -10,7 +10,14 @@ import type { Config } from '../config.js';
 
 const RESTRICTED_KEYS = new Set(['sys_modules.enabled']);
 
-const SENSITIVE_SEGMENTS = new Set(['token', 'secret', 'key', 'password', 'auth', 'credential']);
+const SENSITIVE_SEGMENTS = ['token', 'secret', 'key', 'password', 'auth', 'credential'] as const;
+
+/** Match exact segments or underscore-compound segments (api_key, auth_token). */
+function isSensitiveKey(key: string): boolean {
+  return key.toLowerCase().split('.').some((seg) =>
+    SENSITIVE_SEGMENTS.some((s) => seg === s || seg.endsWith(`_${s}`) || seg.startsWith(`${s}_`)),
+  );
+}
 
 export class UpdateConfigModule {
   readonly description = 'Update a runtime configuration value by dot-path key';
@@ -34,7 +41,7 @@ export class UpdateConfigModule {
     const oldValue = this._config.get(key);
     this._config.set(key, value);
 
-    const isSensitive = key.toLowerCase().split('.').some((seg) => SENSITIVE_SEGMENTS.has(seg));
+    const isSensitive = isSensitiveKey(key);
     const safeOld = isSensitive ? '***' : oldValue;
     const safeNew = isSensitive ? '***' : value;
 
