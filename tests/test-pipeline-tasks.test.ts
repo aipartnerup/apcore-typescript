@@ -1,0 +1,313 @@
+/**
+ * Tests for pipeline tasks: executor-refactor (strategy option),
+ * preset-strategies, call-with-trace, and introspection.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { Type } from '@sinclair/typebox';
+import { Context } from '../src/context.js';
+import { Executor } from '../src/executor.js';
+import { Registry } from '../src/registry/registry.js';
+import { FunctionModule } from '../src/decorator.js';
+import { ExecutionStrategy, StrategyNotFoundError } from '../src/pipeline.js';
+import { InvalidInputError } from '../src/errors.js';
+import {
+  buildStandardStrategy,
+  buildInternalStrategy,
+  buildTestingStrategy,
+  buildPerformanceStrategy,
+  BuiltinContextCreation,
+  BuiltinModuleLookup,
+  BuiltinExecute,
+  BuiltinReturnResult,
+} from '../src/builtin-steps.js';
+import { MiddlewareManager } from '../src/middleware/manager.js';
+import type { StandardStrategyDeps } from '../src/builtin-steps.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeRegistry(): Registry {
+  const reg = new Registry();
+  const mod = new FunctionModule({
+    execute: (inputs) => ({ greeting: `Hello, ${inputs['name'] ?? 'world'}!` }),
+    moduleId: 'test.greet',
+    inputSchema: Type.Object({ name: Type.Optional(Type.String()) }),
+    outputSchema: Type.Object({ greeting: Type.String() }),
+    description: 'Greet module',
+  });
+  reg.register('test.greet', mod);
+  return reg;
+}
+
+function makeDeps(registry: Registry): StandardStrategyDeps {
+  return {
+    config: null,
+    registry,
+    acl: null,
+    approvalHandler: null,
+    middlewareManager: new MiddlewareManager(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Task 1: executor-refactor -- strategy option in constructor
+// ---------------------------------------------------------------------------
+
+describe('Executor strategy option', () => {
+  let registry: Registry;
+
+  beforeEach(() => {
+    registry = makeRegistry();
+  });
+
+  it('accepts null strategy and uses legacy path', async () => {
+    const executor = new Executor({ registry, strategy: null });
+    expect(executor.currentStrategy).toBeNull();
+    // Legacy call still works
+    const result = await executor.call('test.greet', { name: 'Alice' });
+    expect(result['greeting']).toBe('Hello, Alice!');
+  });
+
+  it('accepts undefined strategy (default) and uses legacy path', async () => {
+    const executor = new Executor({ registry });
+    expect(executor.currentStrategy).toBeNull();
+    const result = await executor.call('test.greet', { name: 'Bob' });
+    expect(result['greeting']).toBe('Hello, Bob!');
+  });
+
+  it('accepts an ExecutionStrategy instance', () => {
+    const deps = makeDeps(registry);
+    const strategy = buildStandardStrategy(deps);
+    const executor = new Executor({ registry, strategy });
+    expect(executor.currentStrategy).toBe(strategy);
+    expect(executor.currentStrategy!.name).toBe('standard');
+  });
+
+  it('resolves strategy by builtin name string "standard"', () => {
+    const executor = new Executor({ registry, strategy: 'standard' });
+    expect(executor.currentStrategy).not.toBeNull();
+    expect(executor.currentStrategy!.name).toBe('standard');
+  });
+
+  it('resolves strategy by builtin name string "testing"', () => {
+    const executor = new Executor({ registry, strategy: 'testing' });
+    expect(executor.currentStrategy!.name).toBe('testing');
+  });
+
+  it('resolves strategy by builtin name string "internal"', () => {
+    const executor = new Executor({ registry, strategy: 'internal' });
+    expect(executor.currentStrategy!.name).toBe('internal');
+  });
+
+  it('resolves strategy by builtin name string "performance"', () => {
+    const executor = new Executor({ registry, strategy: 'performance' });
+    expect(executor.currentStrategy!.name).toBe('performance');
+  });
+
+  it('resolves strategy from static registry', () => {
+    const deps = makeDeps(registry);
+    const custom = buildStandardStrategy(deps);
+    // Give it a custom name by creating a new strategy
+    const customStrategy = new ExecutionStrategy('my-custom', [
+      new BuiltinContextCreation(null),
+      new BuiltinModuleLookup(registry),
+      new BuiltinExecute(null),
+      new BuiltinReturnResult(),
+    ]);
+    Executor.registerStrategy('my-custom', customStrategy);
+    try {
+      const executor = new Executor({ registry, strategy: 'my-custom' });
+      expect(executor.currentStrategy).toBe(customStrategy);
+    } finally {
+      // Clean up to not affect other tests -- use listStrategies to confirm
+      // (no unregister API, but static map is shared)
+    }
+  });
+
+  it('throws StrategyNotFoundError for unknown string', () => {
+    expect(() => new Executor({ registry, strategy: 'nonexistent' }))
+      .toThrow(StrategyNotFoundError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 2: preset-strategies
+// ---------------------------------------------------------------------------
+
+describe('Preset strategy factories', () => {
+  let deps: StandardStrategyDeps;
+
+  beforeEach(() => {
+    deps = makeDeps(makeRegistry());
+  });
+
+  it('buildStandardStrategy creates 11-step strategy', () => {
+    const strategy = buildStandardStrategy(deps);
+    expect(strategy.name).toBe('standard');
+    expect(strategy.steps.length).toBe(11);
+    expect(strategy.stepNames()).toContain('builtin.context_creation');
+    expect(strategy.stepNames()).toContain('builtin.acl_check');
+    expect(strategy.stepNames()).toContain('builtin.approval_gate');
+    expect(strategy.stepNames()).toContain('builtin.output_validation');
+  });
+
+  it('buildInternalStrategy skips ACL and approval', () => {
+    const strategy = buildInternalStrategy(deps);
+    expect(strategy.name).toBe('internal');
+    expect(strategy.stepNames()).not.toContain('builtin.acl_check');
+    expect(strategy.stepNames()).not.toContain('builtin.approval_gate');
+    expect(strategy.stepNames()).toContain('builtin.context_creation');
+    expect(strategy.stepNames()).toContain('builtin.module_lookup');
+    expect(strategy.stepNames()).toContain('builtin.execute');
+    expect(strategy.stepNames()).toContain('builtin.return_result');
+  });
+
+  it('buildTestingStrategy is minimal: 4 steps', () => {
+    const strategy = buildTestingStrategy(deps);
+    expect(strategy.name).toBe('testing');
+    expect(strategy.steps.length).toBe(4);
+    expect(strategy.stepNames()).toEqual([
+      'builtin.context_creation',
+      'builtin.module_lookup',
+      'builtin.execute',
+      'builtin.return_result',
+    ]);
+  });
+
+  it('buildPerformanceStrategy skips approval and output validation', () => {
+    const strategy = buildPerformanceStrategy(deps);
+    expect(strategy.name).toBe('performance');
+    expect(strategy.stepNames()).not.toContain('builtin.approval_gate');
+    expect(strategy.stepNames()).not.toContain('builtin.output_validation');
+    expect(strategy.stepNames()).toContain('builtin.acl_check');
+    expect(strategy.stepNames()).toContain('builtin.input_validation');
+    expect(strategy.stepNames()).toContain('builtin.execute');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3: call-with-trace
+// ---------------------------------------------------------------------------
+
+describe('Executor.callWithTrace', () => {
+  let registry: Registry;
+
+  beforeEach(() => {
+    registry = makeRegistry();
+  });
+
+  it('returns output and trace with the testing strategy', async () => {
+    const executor = new Executor({ registry, strategy: 'testing' });
+    const [output, trace] = await executor.callWithTrace('test.greet', { name: 'Trace' });
+    expect(output['greeting']).toBe('Hello, Trace!');
+    expect(trace.moduleId).toBe('test.greet');
+    expect(trace.strategyName).toBe('testing');
+    expect(trace.success).toBe(true);
+    expect(trace.totalDurationMs).toBeGreaterThanOrEqual(0);
+    expect(trace.steps.length).toBeGreaterThan(0);
+  });
+
+  it('returns trace with step details', async () => {
+    const executor = new Executor({ registry, strategy: 'testing' });
+    const [, trace] = await executor.callWithTrace('test.greet', {});
+    const stepNames = trace.steps.map((s) => s.name);
+    expect(stepNames).toContain('builtin.context_creation');
+    expect(stepNames).toContain('builtin.module_lookup');
+    expect(stepNames).toContain('builtin.execute');
+    expect(stepNames).toContain('builtin.return_result');
+    for (const step of trace.steps) {
+      expect(step.durationMs).toBeGreaterThanOrEqual(0);
+      expect(step.skipped).toBe(false);
+    }
+  });
+
+  it('accepts strategy override via options', async () => {
+    const executor = new Executor({ registry, strategy: 'testing' });
+    const deps = makeDeps(registry);
+    const stdStrategy = buildStandardStrategy(deps);
+    const [output, trace] = await executor.callWithTrace('test.greet', { name: 'Override' }, null, { strategy: stdStrategy });
+    expect(output['greeting']).toBe('Hello, Override!');
+    expect(trace.strategyName).toBe('standard');
+    expect(trace.steps.length).toBe(11);
+  });
+
+  it('throws InvalidInputError when no strategy is set', async () => {
+    const executor = new Executor({ registry });
+    await expect(executor.callWithTrace('test.greet', {}))
+      .rejects.toThrow(InvalidInputError);
+  });
+
+  it('works with null inputs', async () => {
+    const executor = new Executor({ registry, strategy: 'testing' });
+    const [output, trace] = await executor.callWithTrace('test.greet', null);
+    expect(output['greeting']).toBe('Hello, world!');
+    expect(trace.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 4: introspection
+// ---------------------------------------------------------------------------
+
+describe('Executor introspection', () => {
+  let registry: Registry;
+
+  afterEach(() => {
+    // Clean up static registry between tests
+    // We cannot directly clear, but we can overwrite with empty values
+  });
+
+  beforeEach(() => {
+    registry = makeRegistry();
+  });
+
+  it('registerStrategy and listStrategies work together', () => {
+    const deps = makeDeps(registry);
+    const strategy = buildTestingStrategy(deps);
+    Executor.registerStrategy('test-intro', strategy);
+    const names = Executor.listStrategies();
+    expect(names).toContain('test-intro');
+  });
+
+  it('describePipeline returns StrategyInfo for current strategy', () => {
+    const executor = new Executor({ registry, strategy: 'testing' });
+    const info = executor.describePipeline();
+    expect(info).not.toBeNull();
+    expect(info!.name).toBe('testing');
+    expect(info!.stepCount).toBe(4);
+    expect(info!.stepNames).toEqual([
+      'builtin.context_creation',
+      'builtin.module_lookup',
+      'builtin.execute',
+      'builtin.return_result',
+    ]);
+    expect(info!.description).toContain('builtin.context_creation');
+  });
+
+  it('describePipeline returns null when no strategy is set', () => {
+    const executor = new Executor({ registry });
+    expect(executor.describePipeline()).toBeNull();
+  });
+
+  it('describePipeline accepts an explicit strategy argument', () => {
+    const executor = new Executor({ registry });
+    const deps = makeDeps(registry);
+    const strategy = buildInternalStrategy(deps);
+    const info = executor.describePipeline(strategy);
+    expect(info).not.toBeNull();
+    expect(info!.name).toBe('internal');
+  });
+
+  it('currentStrategy getter returns the configured strategy', () => {
+    const executor = new Executor({ registry, strategy: 'standard' });
+    expect(executor.currentStrategy).not.toBeNull();
+    expect(executor.currentStrategy!.name).toBe('standard');
+  });
+
+  it('currentStrategy getter returns null for legacy mode', () => {
+    const executor = new Executor({ registry });
+    expect(executor.currentStrategy).toBeNull();
+  });
+});

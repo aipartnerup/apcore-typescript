@@ -180,4 +180,28 @@ export type { UsageRecord, CallerUsageSummary, HourlyBucket, ModuleUsageSummary,
 export { TraceContext } from './trace-context.js';
 export type { TraceParent } from './trace-context.js';
 
+// Pipeline
+export { ExecutionStrategy, PipelineEngine, PipelineAbortError, StepNotFoundError, StepNotRemovableError, StepNotReplaceableError, StepNameDuplicateError, StrategyNotFoundError } from './pipeline.js';
+export type { Step, StepResult, PipelineContext, StepTrace, PipelineTrace, StrategyInfo } from './pipeline.js';
+
+// Built-in Steps
+export {
+  BuiltinContextCreation,
+  BuiltinSafetyCheck,
+  BuiltinModuleLookup,
+  BuiltinACLCheck,
+  BuiltinApprovalGate,
+  BuiltinInputValidation,
+  BuiltinMiddlewareBefore,
+  BuiltinExecute,
+  BuiltinOutputValidation,
+  BuiltinMiddlewareAfter,
+  BuiltinReturnResult,
+  buildStandardStrategy,
+  buildInternalStrategy,
+  buildTestingStrategy,
+  buildPerformanceStrategy,
+} from './builtin-steps.js';
+export type { StandardStrategyDeps } from './builtin-steps.js';
+
 export { VERSION } from './generated/version.js';

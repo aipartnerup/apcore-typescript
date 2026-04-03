@@ -1,0 +1,702 @@
+/**
+ * Built-in pipeline steps extracted from the executor's hardcoded logic.
+ *
+ * Each class implements the Step interface and wraps one phase of the
+ * execution pipeline.  Dependencies are injected via the constructor so
+ * that each step is independently testable.
+ */
+
+import type { TSchema } from '@sinclair/typebox';
+import { Kind } from '@sinclair/typebox';
+import { Value } from '@sinclair/typebox/value';
+import { jsonSchemaToTypeBox } from './schema/loader.js';
+import type { ACL } from './acl.js';
+import type { ApprovalHandler, ApprovalRequest, ApprovalResult } from './approval.js';
+import { createApprovalRequest } from './approval.js';
+import type { Config } from './config.js';
+import { Context } from './context.js';
+import { ExecutionCancelledError } from './cancel.js';
+import {
+  ACLDeniedError,
+  ApprovalDeniedError,
+  ApprovalPendingError,
+  ApprovalTimeoutError,
+  InvalidInputError,
+  ModuleNotFoundError,
+  ModuleTimeoutError,
+  SchemaValidationError,
+} from './errors.js';
+import type { Middleware } from './middleware/index.js';
+import { MiddlewareChainError, MiddlewareManager } from './middleware/manager.js';
+import { guardCallChain } from './utils/call-chain.js';
+import type { ModuleAnnotations } from './module.js';
+import { DEFAULT_ANNOTATIONS } from './module.js';
+import type { Registry } from './registry/registry.js';
+import type { Step, StepResult, PipelineContext } from './pipeline.js';
+import { ExecutionStrategy } from './pipeline.js';
+import { redactSensitive, CTX_GLOBAL_DEADLINE, CTX_TRACING_SPANS } from './executor.js';
+
+// ---------------------------------------------------------------------------
+// Helpers (shared with executor, kept minimal)
+// ---------------------------------------------------------------------------
+
+function resolveSchema(mod: Record<string, unknown>, key: string): TSchema | null {
+  const schema = mod[key] as TSchema | undefined;
+  if (schema == null) return null;
+  if (Kind in schema) return schema;
+  const converted = jsonSchemaToTypeBox(schema as unknown as Record<string, unknown>);
+  mod[key] = converted;
+  return converted;
+}
+
+function validateSchema(
+  schema: TSchema,
+  data: Record<string, unknown>,
+  direction: string,
+): void {
+  if (Value.Check(schema, data)) return;
+  const errors: Array<Record<string, unknown>> = [];
+  for (const error of Value.Errors(schema, data)) {
+    errors.push({
+      field: error.path || '/',
+      code: String(error.type),
+      message: error.message,
+    });
+  }
+  throw new SchemaValidationError(`${direction} validation failed`, errors);
+}
+
+function needsApproval(mod: Record<string, unknown>): boolean {
+  const annotations = mod['annotations'];
+  if (annotations == null) return false;
+  if (typeof annotations !== 'object') return false;
+  if ('requiresApproval' in annotations) {
+    return Boolean((annotations as ModuleAnnotations).requiresApproval);
+  }
+  if ('requires_approval' in annotations) {
+    return Boolean((annotations as Record<string, unknown>)['requires_approval']);
+  }
+  return false;
+}
+
+function dictToAnnotations(dict: Record<string, unknown>): ModuleAnnotations {
+  return {
+    readonly: Boolean(dict['readonly'] ?? false),
+    destructive: Boolean(dict['destructive'] ?? false),
+    idempotent: Boolean(dict['idempotent'] ?? false),
+    requiresApproval: Boolean(dict['requiresApproval'] ?? dict['requires_approval'] ?? false),
+    openWorld: Boolean(dict['openWorld'] ?? dict['open_world'] ?? true),
+    streaming: Boolean(dict['streaming'] ?? false),
+    cacheable: Boolean(dict['cacheable'] ?? false),
+    cacheTtl: Number(dict['cacheTtl'] ?? dict['cache_ttl'] ?? 0),
+    cacheKeyFields: (dict['cacheKeyFields'] ?? dict['cache_key_fields'] ?? null) as string[] | null,
+    paginated: Boolean(dict['paginated'] ?? false),
+    paginationStyle: (dict['paginationStyle'] ?? dict['pagination_style'] ?? 'cursor') as string,
+    extra: Object.freeze((dict['extra'] as Record<string, unknown>) ?? {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 1. BuiltinContextCreation
+// ---------------------------------------------------------------------------
+
+/** Creates or inherits execution Context and sets the global deadline. */
+export class BuiltinContextCreation implements Step {
+  readonly name = 'builtin.context_creation';
+  readonly description = 'Create or inherit execution context and set global deadline';
+  readonly removable = false;
+  readonly replaceable = false;
+
+  private _globalTimeout: number;
+
+  constructor(config: Config | null) {
+    if (config !== null) {
+      this._globalTimeout = (config.get('executor.global_timeout') as number) ?? 60000;
+    } else {
+      this._globalTimeout = 60000;
+    }
+  }
+
+  async execute(ctx: PipelineContext): Promise<StepResult> {
+    // If no context provided, create a fresh one
+    if (ctx.context == null) {
+      ctx.context = Context.create(null).child(ctx.moduleId);
+    }
+
+    // Set global deadline on root call only
+    if (!(CTX_GLOBAL_DEADLINE in ctx.context.data) && this._globalTimeout > 0) {
+      ctx.context.data[CTX_GLOBAL_DEADLINE] = Date.now() + this._globalTimeout;
+    }
+
+    return { action: 'continue' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 2. BuiltinSafetyCheck
+// ---------------------------------------------------------------------------
+
+/** Validates call chain depth, repeat limits, and cancel token. */
+export class BuiltinSafetyCheck implements Step {
+  readonly name = 'builtin.safety_check';
+  readonly description = 'Call chain guard: depth, repeat limits, cancel token';
+  readonly removable = true;
+  readonly replaceable = true;
+
+  private _maxCallDepth: number;
+  private _maxModuleRepeat: number;
+
+  constructor(config: Config | null) {
+    if (config !== null) {
+      this._maxCallDepth = (config.get('executor.max_call_depth') as number) ?? 32;
+      this._maxModuleRepeat = (config.get('executor.max_module_repeat') as number) ?? 3;
+    } else {
+      this._maxCallDepth = 32;
+      this._maxModuleRepeat = 3;
+    }
+  }
+
+  async execute(ctx: PipelineContext): Promise<StepResult> {
+    // Check cancel token first
+    if (ctx.context.cancelToken !== null) {
+      try {
+        ctx.context.cancelToken.check();
+      } catch (e) {
+        if (e instanceof ExecutionCancelledError) {
+          return {
+            action: 'abort',
+            explanation: `Execution cancelled: ${e.message}`,
+          };
+        }
+        throw e;
+      }
+    }
+
+    // Call chain safety guard
+    try {
+      guardCallChain(
+        ctx.moduleId,
+        ctx.context.callChain,
+        this._maxCallDepth,
+        this._maxModuleRepeat,
+      );
+    } catch (e) {
+      return {
+        action: 'abort',
+        explanation: e instanceof Error ? e.message : String(e),
+      };
+    }
+
+    return { action: 'continue' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 3. BuiltinModuleLookup
+// ---------------------------------------------------------------------------
+
+/** Resolves the module from the registry and sets ctx.module. */
+export class BuiltinModuleLookup implements Step {
+  readonly name = 'builtin.module_lookup';
+  readonly description = 'Resolve module from registry';
+  readonly removable = false;
+  readonly replaceable = false;
+
+  private _registry: Registry;
+
+  constructor(registry: Registry) {
+    this._registry = registry;
+  }
+
+  async execute(ctx: PipelineContext): Promise<StepResult> {
+    const mod = this._registry.get(ctx.moduleId);
+    if (mod === null) {
+      return {
+        action: 'abort',
+        explanation: `Module not found: ${ctx.moduleId}`,
+      };
+    }
+    ctx.module = mod;
+    return { action: 'continue' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 4. BuiltinACLCheck
+// ---------------------------------------------------------------------------
+
+/** Enforces access control via the ACL provider. */
+export class BuiltinACLCheck implements Step {
+  readonly name = 'builtin.acl_check';
+  readonly description = 'Access control list enforcement';
+  readonly removable = true;
+  readonly replaceable = true;
+
+  private _acl: ACL | null;
+
+  constructor(acl: ACL | null) {
+    this._acl = acl;
+  }
+
+  async execute(ctx: PipelineContext): Promise<StepResult> {
+    if (this._acl === null) {
+      return { action: 'continue' };
+    }
+    const allowed = this._acl.check(ctx.context.callerId, ctx.moduleId, ctx.context);
+    if (!allowed) {
+      return {
+        action: 'abort',
+        explanation: `Access denied: ${ctx.context.callerId} -> ${ctx.moduleId}`,
+      };
+    }
+    return { action: 'continue' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5. BuiltinApprovalGate
+// ---------------------------------------------------------------------------
+
+/** Handles approval flow for modules that require explicit approval. */
+export class BuiltinApprovalGate implements Step {
+  readonly name = 'builtin.approval_gate';
+  readonly description = 'Approval handler flow';
+  readonly removable = true;
+  readonly replaceable = true;
+
+  private _handler: ApprovalHandler | null;
+
+  constructor(handler: ApprovalHandler | null) {
+    this._handler = handler;
+  }
+
+  async execute(ctx: PipelineContext): Promise<StepResult> {
+    if (this._handler === null) {
+      return { action: 'continue' };
+    }
+
+    const mod = ctx.module as Record<string, unknown>;
+    if (!needsApproval(mod)) {
+      return { action: 'continue' };
+    }
+
+    let result: ApprovalResult;
+    let cleanInputs = ctx.inputs;
+
+    if ('_approval_token' in ctx.inputs) {
+      const token = ctx.inputs['_approval_token'] as string;
+      const { _approval_token: _, ...rest } = ctx.inputs;
+      cleanInputs = rest;
+      result = await this._handler.checkApproval(token);
+    } else {
+      const annotations = mod['annotations'];
+      let ann: ModuleAnnotations;
+      if (annotations != null && typeof annotations === 'object' && 'requiresApproval' in annotations) {
+        ann = annotations as ModuleAnnotations;
+      } else if (annotations != null && typeof annotations === 'object') {
+        ann = dictToAnnotations(annotations as Record<string, unknown>);
+      } else {
+        ann = DEFAULT_ANNOTATIONS;
+      }
+
+      const request = createApprovalRequest({
+        moduleId: ctx.moduleId,
+        arguments: ctx.inputs,
+        context: ctx.context,
+        annotations: ann,
+        description: (mod['description'] as string) ?? null,
+        tags: (mod['tags'] as string[]) ?? [],
+      });
+      result = await this._handler.requestApproval(request);
+    }
+
+    // Emit audit event
+    const spansStack = ctx.context.data[CTX_TRACING_SPANS] as
+      | Array<{ events: Array<Record<string, unknown>> }>
+      | undefined;
+    if (spansStack && spansStack.length > 0) {
+      spansStack[spansStack.length - 1].events.push({
+        name: 'approval_decision',
+        module_id: ctx.moduleId,
+        status: result.status,
+        approved_by: result.approvedBy ?? '',
+        reason: result.reason ?? '',
+        approval_id: result.approvalId ?? '',
+      });
+    }
+
+    if (result.status === 'approved') {
+      ctx.inputs = cleanInputs;
+      return { action: 'continue' };
+    }
+
+    if (result.status === 'timeout') {
+      return {
+        action: 'abort',
+        explanation: `Approval timed out for module ${ctx.moduleId}`,
+      };
+    }
+
+    if (result.status === 'pending') {
+      return {
+        action: 'abort',
+        explanation: `Approval pending for module ${ctx.moduleId}: ${result.approvalId ?? 'unknown'}`,
+      };
+    }
+
+    // rejected or unknown
+    return {
+      action: 'abort',
+      explanation: `Approval denied for module ${ctx.moduleId}: ${result.reason ?? 'no reason'}`,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 6. BuiltinInputValidation
+// ---------------------------------------------------------------------------
+
+/** Validates inputs against module schema and redacts sensitive fields. */
+export class BuiltinInputValidation implements Step {
+  readonly name = 'builtin.input_validation';
+  readonly description = 'Schema validation and redaction for inputs';
+  readonly removable = true;
+  readonly replaceable = true;
+
+  async execute(ctx: PipelineContext): Promise<StepResult> {
+    const mod = ctx.module as Record<string, unknown>;
+    const inputSchema = resolveSchema(mod, 'inputSchema');
+    if (inputSchema == null) {
+      ctx.validatedInputs = ctx.inputs;
+      return { action: 'continue' };
+    }
+
+    try {
+      validateSchema(inputSchema, ctx.inputs, 'Input');
+    } catch (e) {
+      if (e instanceof SchemaValidationError) {
+        return {
+          action: 'abort',
+          explanation: e.message,
+        };
+      }
+      throw e;
+    }
+
+    ctx.context.redactedInputs = redactSensitive(
+      ctx.inputs,
+      inputSchema as unknown as Record<string, unknown>,
+    );
+    ctx.validatedInputs = ctx.inputs;
+    return { action: 'continue' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 7. BuiltinMiddlewareBefore
+// ---------------------------------------------------------------------------
+
+/** Executes before-middleware chain via MiddlewareManager. */
+export class BuiltinMiddlewareBefore implements Step {
+  readonly name = 'builtin.middleware_before';
+  readonly description = 'Execute before-middleware chain';
+  readonly removable = true;
+  readonly replaceable = false;
+
+  private _middlewareManager: MiddlewareManager;
+
+  constructor(middlewares: MiddlewareManager) {
+    this._middlewareManager = middlewares;
+  }
+
+  async execute(ctx: PipelineContext): Promise<StepResult> {
+    try {
+      const [effectiveInputs] = this._middlewareManager.executeBefore(
+        ctx.moduleId,
+        ctx.inputs,
+        ctx.context,
+      );
+      ctx.inputs = effectiveInputs;
+    } catch (e) {
+      if (e instanceof MiddlewareChainError) {
+        return {
+          action: 'abort',
+          explanation: `Middleware before-chain error: ${e.original.message}`,
+        };
+      }
+      throw e;
+    }
+    return { action: 'continue' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 8. BuiltinExecute
+// ---------------------------------------------------------------------------
+
+/** Executes the module with timeout enforcement. Sets ctx.output. */
+export class BuiltinExecute implements Step {
+  readonly name = 'builtin.execute';
+  readonly description = 'Execute module with timeout';
+  readonly removable = false;
+  readonly replaceable = true;
+
+  private _defaultTimeout: number;
+
+  constructor(config: Config | null) {
+    if (config !== null) {
+      this._defaultTimeout = (config.get('executor.default_timeout') as number) ?? 30000;
+    } else {
+      this._defaultTimeout = 30000;
+    }
+  }
+
+  async execute(ctx: PipelineContext): Promise<StepResult> {
+    const mod = ctx.module as Record<string, unknown>;
+
+    // Cancel check before execution
+    if (ctx.context.cancelToken !== null) {
+      try {
+        ctx.context.cancelToken.check();
+      } catch (e) {
+        if (e instanceof ExecutionCancelledError) {
+          return {
+            action: 'abort',
+            explanation: `Execution cancelled: ${e.message}`,
+          };
+        }
+        throw e;
+      }
+    }
+
+    // Streaming path: store the generator on ctx.outputStream
+    if (ctx.stream) {
+      const streamFn = mod['stream'] as
+        | ((inputs: Record<string, unknown>, context: Context) => AsyncGenerator<Record<string, unknown>>)
+        | undefined;
+      if (typeof streamFn === 'function') {
+        ctx.outputStream = streamFn.call(mod, ctx.inputs, ctx.context);
+        return { action: 'continue' };
+      }
+      // fallback: execute normally and wrap as single-chunk
+    }
+
+    // Regular execution with timeout
+    let timeoutMs = this._defaultTimeout;
+    const globalDeadline = ctx.context.data[CTX_GLOBAL_DEADLINE] as number | undefined;
+    if (globalDeadline !== undefined) {
+      const remaining = globalDeadline - Date.now();
+      if (remaining <= 0) {
+        return {
+          action: 'abort',
+          explanation: `Module timed out: ${ctx.moduleId} (global deadline exceeded)`,
+        };
+      }
+      if (timeoutMs === 0 || remaining < timeoutMs) {
+        timeoutMs = remaining;
+      }
+    }
+
+    const executeFn = mod['execute'];
+    if (typeof executeFn !== 'function') {
+      return {
+        action: 'abort',
+        explanation: `Module '${ctx.moduleId}' has no execute method`,
+      };
+    }
+
+    const executionPromise = Promise.resolve(
+      (executeFn as (inputs: Record<string, unknown>, context: Context) => Promise<Record<string, unknown>> | Record<string, unknown>)
+        .call(mod, ctx.inputs, ctx.context),
+    );
+
+    try {
+      if (timeoutMs === 0) {
+        ctx.output = await executionPromise;
+      } else {
+        let timer: ReturnType<typeof setTimeout>;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new ModuleTimeoutError(ctx.moduleId, timeoutMs));
+          }, timeoutMs);
+        });
+        ctx.output = await Promise.race([executionPromise, timeoutPromise]).finally(() => {
+          clearTimeout(timer!);
+        });
+      }
+    } catch (e) {
+      if (e instanceof ModuleTimeoutError) {
+        return {
+          action: 'abort',
+          explanation: `Module timed out: ${ctx.moduleId} (${timeoutMs}ms)`,
+        };
+      }
+      throw e;
+    }
+
+    return { action: 'continue' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 9. BuiltinOutputValidation
+// ---------------------------------------------------------------------------
+
+/** Validates output against module schema and redacts sensitive fields. */
+export class BuiltinOutputValidation implements Step {
+  readonly name = 'builtin.output_validation';
+  readonly description = 'Schema validation and redaction for output';
+  readonly removable = true;
+  readonly replaceable = true;
+
+  async execute(ctx: PipelineContext): Promise<StepResult> {
+    const mod = ctx.module as Record<string, unknown>;
+    const output = ctx.output ?? {};
+
+    const outputSchema = resolveSchema(mod, 'outputSchema');
+    if (outputSchema == null) {
+      ctx.validatedOutput = output;
+      return { action: 'continue' };
+    }
+
+    try {
+      validateSchema(outputSchema, output, 'Output');
+    } catch (e) {
+      if (e instanceof SchemaValidationError) {
+        return {
+          action: 'abort',
+          explanation: e.message,
+        };
+      }
+      throw e;
+    }
+
+    ctx.validatedOutput = output;
+    return { action: 'continue' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 10. BuiltinMiddlewareAfter
+// ---------------------------------------------------------------------------
+
+/** Executes after-middleware chain via MiddlewareManager. */
+export class BuiltinMiddlewareAfter implements Step {
+  readonly name = 'builtin.middleware_after';
+  readonly description = 'Execute after-middleware chain';
+  readonly removable = true;
+  readonly replaceable = false;
+
+  private _middlewareManager: MiddlewareManager;
+
+  constructor(middlewares: MiddlewareManager) {
+    this._middlewareManager = middlewares;
+  }
+
+  async execute(ctx: PipelineContext): Promise<StepResult> {
+    const output = ctx.output ?? {};
+    const transformed = this._middlewareManager.executeAfter(
+      ctx.moduleId,
+      ctx.inputs,
+      output,
+      ctx.context,
+    );
+    ctx.output = transformed;
+    return { action: 'continue' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 11. BuiltinReturnResult
+// ---------------------------------------------------------------------------
+
+/** Finalizes the pipeline result. Output is already on ctx.output. */
+export class BuiltinReturnResult implements Step {
+  readonly name = 'builtin.return_result';
+  readonly description = 'Finalize pipeline result';
+  readonly removable = false;
+  readonly replaceable = false;
+
+  async execute(_ctx: PipelineContext): Promise<StepResult> {
+    // No-op: output is already on ctx.output from previous steps
+    return { action: 'continue' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Factory: buildStandardStrategy
+// ---------------------------------------------------------------------------
+
+export interface StandardStrategyDeps {
+  config: Config | null;
+  registry: Registry;
+  acl: ACL | null;
+  approvalHandler: ApprovalHandler | null;
+  middlewareManager: MiddlewareManager;
+}
+
+/** Build the standard 11-step execution strategy matching the current Executor. */
+export function buildStandardStrategy(deps: StandardStrategyDeps): ExecutionStrategy {
+  return new ExecutionStrategy('standard', [
+    new BuiltinContextCreation(deps.config),
+    new BuiltinSafetyCheck(deps.config),
+    new BuiltinModuleLookup(deps.registry),
+    new BuiltinACLCheck(deps.acl),
+    new BuiltinApprovalGate(deps.approvalHandler),
+    new BuiltinInputValidation(),
+    new BuiltinMiddlewareBefore(deps.middlewareManager),
+    new BuiltinExecute(deps.config),
+    new BuiltinOutputValidation(),
+    new BuiltinMiddlewareAfter(deps.middlewareManager),
+    new BuiltinReturnResult(),
+  ]);
+}
+
+/**
+ * Build an internal-only strategy: skips ACL and approval gates.
+ * Suitable for trusted internal service-to-service calls.
+ */
+export function buildInternalStrategy(deps: StandardStrategyDeps): ExecutionStrategy {
+  return new ExecutionStrategy('internal', [
+    new BuiltinContextCreation(deps.config),
+    new BuiltinSafetyCheck(deps.config),
+    new BuiltinModuleLookup(deps.registry),
+    new BuiltinInputValidation(),
+    new BuiltinMiddlewareBefore(deps.middlewareManager),
+    new BuiltinExecute(deps.config),
+    new BuiltinOutputValidation(),
+    new BuiltinMiddlewareAfter(deps.middlewareManager),
+    new BuiltinReturnResult(),
+  ]);
+}
+
+/**
+ * Build a testing strategy: minimal pipeline with only lookup, execute, and return.
+ * No middleware, no validation, no ACL, no approval. Fast and predictable for tests.
+ */
+export function buildTestingStrategy(deps: StandardStrategyDeps): ExecutionStrategy {
+  return new ExecutionStrategy('testing', [
+    new BuiltinContextCreation(deps.config),
+    new BuiltinModuleLookup(deps.registry),
+    new BuiltinExecute(deps.config),
+    new BuiltinReturnResult(),
+  ]);
+}
+
+/**
+ * Build a performance strategy: skips approval gate and output validation.
+ * Retains ACL, input validation, and middleware for correctness where it matters.
+ */
+export function buildPerformanceStrategy(deps: StandardStrategyDeps): ExecutionStrategy {
+  return new ExecutionStrategy('performance', [
+    new BuiltinContextCreation(deps.config),
+    new BuiltinSafetyCheck(deps.config),
+    new BuiltinModuleLookup(deps.registry),
+    new BuiltinACLCheck(deps.acl),
+    new BuiltinInputValidation(),
+    new BuiltinMiddlewareBefore(deps.middlewareManager),
+    new BuiltinExecute(deps.config),
+    new BuiltinMiddlewareAfter(deps.middlewareManager),
+    new BuiltinReturnResult(),
+  ]);
+}

@@ -33,6 +33,15 @@ import type { Module, ModuleAnnotations, PreflightCheckResult, PreflightResult }
 import { DEFAULT_ANNOTATIONS, createPreflightResult } from './module.js';
 import { MODULE_ID_PATTERN } from './registry/registry.js';
 import type { Registry } from './registry/registry.js';
+import type { PipelineTrace, StrategyInfo } from './pipeline.js';
+import { ExecutionStrategy, PipelineEngine, StrategyNotFoundError } from './pipeline.js';
+import {
+  buildStandardStrategy,
+  buildInternalStrategy,
+  buildTestingStrategy,
+  buildPerformanceStrategy,
+} from './builtin-steps.js';
+import type { StandardStrategyDeps } from './builtin-steps.js';
 
 export const REDACTED_VALUE: string = '***REDACTED***';
 
@@ -132,9 +141,14 @@ export class Executor {
   private _globalTimeout: number;
   private _maxCallDepth: number;
   private _maxModuleRepeat: number;
+  private _strategy: ExecutionStrategy | null;
+
+  /** Global strategy registry for name-based resolution. */
+  private static _strategyRegistry = new Map<string, ExecutionStrategy>();
 
   constructor(options: {
     registry: Registry;
+    strategy?: ExecutionStrategy | string | null;
     middlewares?: Middleware[] | null;
     acl?: ACL | null;
     config?: Config | null;
@@ -163,6 +177,74 @@ export class Executor {
       this._maxCallDepth = 32;
       this._maxModuleRepeat = 3;
     }
+
+    // Resolve strategy option
+    const strategyOpt = options.strategy;
+    if (strategyOpt === undefined || strategyOpt === null) {
+      // null/undefined: no pipeline strategy, use legacy execution path
+      this._strategy = null;
+    } else if (typeof strategyOpt === 'string') {
+      // Resolve by name from the global registry
+      const resolved = Executor._strategyRegistry.get(strategyOpt);
+      if (resolved === undefined) {
+        // Try built-in factory names
+        const deps = this._buildStrategyDeps();
+        const builtinFactories: Record<string, (d: StandardStrategyDeps) => ExecutionStrategy> = {
+          standard: buildStandardStrategy,
+          internal: buildInternalStrategy,
+          testing: buildTestingStrategy,
+          performance: buildPerformanceStrategy,
+        };
+        const factory = builtinFactories[strategyOpt];
+        if (factory !== undefined) {
+          this._strategy = factory(deps);
+        } else {
+          throw new StrategyNotFoundError(`Strategy '${strategyOpt}' not found in registry`);
+        }
+      } else {
+        this._strategy = resolved;
+      }
+    } else {
+      // ExecutionStrategy instance
+      this._strategy = strategyOpt;
+    }
+  }
+
+  /** Build the dependency bag for strategy factories. */
+  private _buildStrategyDeps(): StandardStrategyDeps {
+    return {
+      config: this._config,
+      registry: this._registry,
+      acl: this._acl,
+      approvalHandler: this._approvalHandler,
+      middlewareManager: this._middlewareManager,
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // Static strategy registry (introspection - Task 4)
+  // -----------------------------------------------------------------------
+
+  /** Register a named strategy in the global registry. */
+  static registerStrategy(name: string, strategy: ExecutionStrategy): void {
+    Executor._strategyRegistry.set(name, strategy);
+  }
+
+  /** List all registered strategy names. */
+  static listStrategies(): string[] {
+    return [...Executor._strategyRegistry.keys()];
+  }
+
+  /** Describe the pipeline of the given strategy (or the executor's current strategy). */
+  describePipeline(strategy?: ExecutionStrategy | null): StrategyInfo | null {
+    const target = strategy ?? this._strategy;
+    if (target === null) return null;
+    return target.info();
+  }
+
+  /** Get the current execution strategy (may be null for legacy mode). */
+  get currentStrategy(): ExecutionStrategy | null {
+    return this._strategy;
   }
 
   static fromRegistry(
@@ -233,6 +315,44 @@ export class Executor {
     versionHint?: string | null,
   ): Promise<Record<string, unknown>> {
     return this.call(moduleId, inputs, context, versionHint);
+  }
+
+  /**
+   * Execute a module through the pipeline strategy and return both the output
+   * and a full execution trace. Requires a strategy to be set (either on the
+   * executor or passed via options).
+   */
+  async callWithTrace(
+    moduleId: string,
+    inputs?: Record<string, unknown> | null,
+    context?: Context | null,
+    options?: { strategy?: ExecutionStrategy | null } | null,
+  ): Promise<[Record<string, unknown>, PipelineTrace]> {
+    const strategy = options?.strategy ?? this._strategy;
+    if (strategy === null) {
+      throw new InvalidInputError(
+        'callWithTrace requires a pipeline strategy. Set one on the Executor or pass via options.',
+      );
+    }
+
+    const ctx = context ?? Context.create(this).child(moduleId);
+    const pipelineCtx = {
+      moduleId,
+      inputs: inputs ?? {},
+      context: ctx,
+      module: null as unknown,
+      validatedInputs: null as Record<string, unknown> | null,
+      output: null as Record<string, unknown> | null,
+      validatedOutput: null as Record<string, unknown> | null,
+      stream: false,
+      outputStream: null as AsyncGenerator | null,
+      strategy,
+      trace: null as PipelineTrace | null,
+    };
+
+    const engine = new PipelineEngine();
+    const [output, trace] = await engine.run(strategy, pipelineCtx);
+    return [(output ?? {}) as Record<string, unknown>, trace];
   }
 
   /**
