@@ -117,7 +117,8 @@ function dictToAnnotations(dict: Record<string, unknown>): ModuleAnnotations {
     cacheTtl: Number(dict['cacheTtl'] ?? dict['cache_ttl'] ?? 0),
     cacheKeyFields: (dict['cacheKeyFields'] ?? dict['cache_key_fields'] ?? null) as string[] | null,
     paginated: Boolean(dict['paginated'] ?? false),
-    paginationStyle: (dict['paginationStyle'] ?? dict['pagination_style'] ?? 'cursor') as 'cursor' | 'offset' | 'page',
+    paginationStyle: (dict['paginationStyle'] ?? dict['pagination_style'] ?? 'cursor') as string,
+    extra: Object.freeze((dict['extra'] as Record<string, unknown>) ?? {}),
   };
 }
 

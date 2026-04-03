@@ -50,7 +50,7 @@ function createDestructiveModule(): FunctionModule {
       cacheTtl: 0,
       cacheKeyFields: null,
       paginated: false,
-      paginationStyle: 'cursor' as const,
+      paginationStyle: 'cursor' as const, extra: {},
     },
     execute: (inputs) => ({ deleted: true, user_id: inputs['user_id'] }),
   });
@@ -73,7 +73,7 @@ function createSafeModule(): FunctionModule {
       cacheTtl: 0,
       cacheKeyFields: null,
       paginated: false,
-      paginationStyle: 'cursor' as const,
+      paginationStyle: 'cursor' as const, extra: {},
     },
     execute: () => ({ data: 'safe' }),
   });

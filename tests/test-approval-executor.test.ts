@@ -47,7 +47,7 @@ function createApprovalRequiredModule(): FunctionModule {
       cacheTtl: 0,
       cacheKeyFields: null,
       paginated: false,
-      paginationStyle: 'cursor' as const,
+      paginationStyle: 'cursor' as const, extra: {},
     },
     execute: (inputs) => ({ status: 'executed' }),
   });
@@ -71,7 +71,7 @@ function createApprovalRequiredDictModule(): FunctionModule {
       cacheTtl: 0,
       cacheKeyFields: null,
       paginated: false,
-      paginationStyle: 'cursor' as const,
+      paginationStyle: 'cursor' as const, extra: {},
     },
     execute: (inputs) => ({ status: 'executed' }),
   });
@@ -94,7 +94,7 @@ function createNoApprovalModule(): FunctionModule {
       cacheTtl: 0,
       cacheKeyFields: null,
       paginated: false,
-      paginationStyle: 'cursor' as const,
+      paginationStyle: 'cursor' as const, extra: {},
     },
     execute: (inputs) => ({ status: 'executed' }),
   });
@@ -127,7 +127,7 @@ function createAsyncApprovalModule(): FunctionModule {
       cacheTtl: 0,
       cacheKeyFields: null,
       paginated: false,
-      paginationStyle: 'cursor' as const,
+      paginationStyle: 'cursor' as const, extra: {},
     },
     execute: async (inputs) => ({ status: 'async_executed' }),
   });

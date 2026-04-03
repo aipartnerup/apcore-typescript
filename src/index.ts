@@ -9,13 +9,22 @@ export type { APCoreOptions, ModuleOptions } from './client.js';
 // Core
 export { CancelToken, ExecutionCancelledError } from './cancel.js';
 export { Context, createIdentity } from './context.js';
+export { ContextKey } from './context-key.js';
+export {
+  TRACING_SPANS,
+  TRACING_SAMPLED,
+  METRICS_STARTS,
+  LOGGING_START,
+  REDACTED_OUTPUT,
+  RETRY_COUNT_BASE,
+} from './context-keys.js';
 export type { Identity, ContextFactory } from './context.js';
 export { Registry, REGISTRY_EVENTS, MODULE_ID_PATTERN, MAX_MODULE_ID_LENGTH, RESERVED_WORDS } from './registry/registry.js';
 export type { Discoverer, ModuleValidator } from './registry/registry.js';
 export { Executor, redactSensitive, REDACTED_VALUE, CTX_GLOBAL_DEADLINE, CTX_TRACING_SPANS } from './executor.js';
 
 // Module types
-export { DEFAULT_ANNOTATIONS, createPreflightResult } from './module.js';
+export { DEFAULT_ANNOTATIONS, createAnnotations, annotationsToJSON, annotationsFromJSON, createPreflightResult } from './module.js';
 export type { ModuleAnnotations, ModuleExample, ModuleDescription, ValidationResult, PreflightCheckResult, PreflightResult, Module } from './module.js';
 
 // Config

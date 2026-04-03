@@ -42,7 +42,7 @@ function createModule(
       cacheTtl: 0,
       cacheKeyFields: null,
       paginated: false,
-      paginationStyle: 'cursor' as const,
+      paginationStyle: 'cursor' as const, extra: {},
     },
     examples: [
       {

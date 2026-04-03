@@ -33,6 +33,7 @@ export class Context<T = null> {
   readonly data: Record<string, unknown>;
   readonly services: T;
   readonly cancelToken: CancelToken | null;
+  readonly globalDeadline: number | null;
 
   constructor(
     traceId: string,
@@ -44,6 +45,7 @@ export class Context<T = null> {
     data: Record<string, unknown> = {},
     cancelToken: CancelToken | null = null,
     services: T = null as T,
+    globalDeadline: number | null = null,
   ) {
     this.traceId = traceId;
     this.callerId = callerId;
@@ -54,6 +56,7 @@ export class Context<T = null> {
     this.data = data;
     this.services = services;
     this.cancelToken = cancelToken;
+    this.globalDeadline = globalDeadline;
   }
 
   /**
@@ -69,6 +72,7 @@ export class Context<T = null> {
     data?: Record<string, unknown>,
     traceParent?: TraceParent | null,
     services?: S,
+    globalDeadline?: number | null,
   ): Context<S> {
     let traceId: string;
     if (traceParent) {
@@ -87,6 +91,82 @@ export class Context<T = null> {
       data ?? {},
       null,
       services ?? (null as S),
+      globalDeadline ?? null,
+    );
+  }
+
+  /**
+   * Serialize Context to a plain object suitable for JSON encoding.
+   *
+   * Includes `_context_version: 1` at top level.
+   * Uses snake_case keys for cross-language consistency.
+   * Excludes: executor, services, cancelToken, globalDeadline.
+   * Filters `_`-prefixed keys from data.
+   */
+  serialize(): Record<string, unknown> {
+    const filteredData: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(this.data)) {
+      if (!key.startsWith('_')) {
+        filteredData[key] = value;
+      }
+    }
+    const result: Record<string, unknown> = {
+      _context_version: 1,
+      trace_id: this.traceId,
+      caller_id: this.callerId,
+      call_chain: [...this.callChain],
+      identity: this.identity ? {
+        id: this.identity.id,
+        type: this.identity.type,
+        roles: [...this.identity.roles],
+        attrs: { ...this.identity.attrs },
+      } : null,
+      data: filteredData,
+    };
+    if (this.redactedInputs !== undefined && this.redactedInputs !== null) {
+      result.redacted_inputs = { ...this.redactedInputs };
+    }
+    return result;
+  }
+
+  /**
+   * Deserialize a plain object (from JSON) into a Context.
+   *
+   * Non-serializable fields (executor, services, cancelToken,
+   * globalDeadline) are set to null after deserialization.
+   * If `_context_version` is greater than 1, a warning is logged
+   * but deserialization proceeds (forward compatibility).
+   */
+  static deserialize(data: Record<string, unknown>): Context {
+    const version = (data._context_version as number) ?? 1;
+    if (version > 1) {
+      console.warn(
+        `[apcore:context] Unknown _context_version ${version} (expected 1). ` +
+        'Proceeding with best-effort deserialization.',
+      );
+    }
+
+    const identityData = data.identity as Record<string, unknown> | null | undefined;
+    const identity = identityData ? createIdentity(
+      identityData.id as string,
+      (identityData.type as string) ?? 'user',
+      Array.isArray(identityData.roles) ? identityData.roles as string[] : [],
+      (identityData.attrs && typeof identityData.attrs === 'object'
+        ? identityData.attrs as Record<string, unknown>
+        : {}),
+    ) : null;
+
+    return new Context(
+      (data.trace_id as string) ?? '',
+      (data.caller_id as string) ?? null,
+      (data.call_chain as string[]) ?? [],
+      null, // executor
+      identity,
+      (data.redacted_inputs as Record<string, unknown>) ?? null,
+      data.data ? { ...(data.data as Record<string, unknown>) } : {},
+      null, // cancelToken
+      null as never, // services
+      null, // globalDeadline
     );
   }
 
@@ -146,6 +226,7 @@ export class Context<T = null> {
       this.data, // shared reference
       this.cancelToken,
       this.services,
+      this.globalDeadline,
     );
   }
 }

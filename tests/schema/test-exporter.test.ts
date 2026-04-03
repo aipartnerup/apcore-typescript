@@ -60,7 +60,7 @@ describe('SchemaExporter', () => {
         cacheTtl: 0,
         cacheKeyFields: null,
         paginated: false,
-        paginationStyle: 'cursor',
+        paginationStyle: 'cursor', extra: {},
       };
       const result = exporter.exportMcp(sd, annotations, 'MyTool');
       expect(result['name']).toBe('MyTool');
@@ -87,7 +87,7 @@ describe('SchemaExporter', () => {
         cacheTtl: 0,
         cacheKeyFields: null,
         paginated: false,
-        paginationStyle: 'cursor',
+        paginationStyle: 'cursor', extra: {},
       };
       const result = exporter.exportMcp(sd, annotations);
       const annots = result['annotations'] as Record<string, unknown>;
@@ -124,7 +124,7 @@ describe('SchemaExporter', () => {
         cacheTtl: 120,
         cacheKeyFields: ['userId'],
         paginated: true,
-        paginationStyle: 'offset',
+        paginationStyle: 'offset', extra: {},
       };
       const result = exporter.exportMcp(sd, annotations);
       const meta = result['_meta'] as Record<string, unknown>;

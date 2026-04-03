@@ -6,6 +6,16 @@ import yaml from 'js-yaml';
 import type { Context } from './context.js';
 import { ACLRuleError, ConfigNotFoundError } from './errors.js';
 import { matchPattern } from './utils/pattern.js';
+import type { ACLConditionHandler } from './acl-handlers.js';
+import {
+  IdentityTypesHandler,
+  RolesHandler,
+  MaxCallDepthHandler,
+  OrHandler,
+  NotHandler,
+  arraysEqual,
+  deepEqual,
+} from './acl-handlers.js';
 
 // Lazy-load Node.js built-in modules for browser compatibility
 let _nodeFs: typeof import('node:fs') | null = null;
@@ -73,6 +83,55 @@ function parseAclRule(rawRule: unknown, index: number): ACLRule {
 }
 
 export class ACL {
+  private static conditionHandlers = new Map<string, ACLConditionHandler>();
+
+  static registerCondition(key: string, handler: ACLConditionHandler): void {
+    ACL.conditionHandlers.set(key, handler);
+  }
+
+  static _evaluateConditions(conditions: Record<string, unknown>, context: Context): boolean {
+    for (const [key, value] of Object.entries(conditions)) {
+      const handler = ACL.conditionHandlers.get(key);
+      if (handler === undefined) {
+        console.warn(`[apcore:acl] Unknown ACL condition '${key}' — treated as unsatisfied`);
+        return false;
+      }
+      try {
+        const result = handler.evaluate(value, context);
+        if (result instanceof Promise) {
+          // Async handler in sync context — fail-closed
+          console.warn(
+            `[apcore:acl] Async condition '${key}' in sync context — treated as unsatisfied. Use asyncCheck().`,
+          );
+          return false;
+        }
+        if (!result) return false;
+      } catch {
+        console.warn(`[apcore:acl] Handler for condition '${key}' threw — treated as unsatisfied`);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static async _evaluateConditionsAsync(conditions: Record<string, unknown>, context: Context): Promise<boolean> {
+    for (const [key, value] of Object.entries(conditions)) {
+      const handler = ACL.conditionHandlers.get(key);
+      if (handler === undefined) {
+        console.warn(`[apcore:acl] Unknown ACL condition '${key}' — treated as unsatisfied`);
+        return false;
+      }
+      try {
+        const result = await handler.evaluate(value, context);
+        if (!result) return false;
+      } catch {
+        console.warn(`[apcore:acl] Handler for condition '${key}' threw — treated as unsatisfied`);
+        return false;
+      }
+    }
+    return true;
+  }
+
   private _rules: ACLRule[];
   private _defaultEffect: string;
   private _yamlPath: string | null = null;
@@ -154,6 +213,50 @@ export class ACL {
     return defaultDecision;
   }
 
+  async asyncCheck(callerId: string | null, targetId: string, context?: Context | null): Promise<boolean> {
+    const effectiveCaller = callerId === null ? '@external' : callerId;
+    const ctx = context ?? null;
+
+    for (let idx = 0; idx < this._rules.length; idx++) {
+      const rule = this._rules[idx];
+      if (await this._matchesRuleAsync(rule, effectiveCaller, targetId, ctx)) {
+        const decision = rule.effect === 'allow';
+        if (this._auditLogger) {
+          this._auditLogger(this._buildAuditEntry(
+            effectiveCaller, targetId, decision ? 'allow' : 'deny',
+            'rule_match', rule, idx, ctx,
+          ));
+        }
+        return decision;
+      }
+    }
+
+    const defaultDecision = this._defaultEffect === 'allow';
+    if (this._auditLogger) {
+      const reason = this._rules.length === 0 ? 'no_rules' : 'default_effect';
+      this._auditLogger(this._buildAuditEntry(
+        effectiveCaller, targetId, defaultDecision ? 'allow' : 'deny',
+        reason, null, null, ctx,
+      ));
+    }
+    return defaultDecision;
+  }
+
+  private async _matchesRuleAsync(rule: ACLRule, caller: string, target: string, context: Context | null): Promise<boolean> {
+    const callerMatch = rule.callers.some((p) => this._matchPattern(p, caller, context));
+    if (!callerMatch) return false;
+
+    const targetMatch = rule.targets.some((p) => this._matchPattern(p, target, context));
+    if (!targetMatch) return false;
+
+    if (rule.conditions != null) {
+      if (context === null) return false;
+      if (!await ACL._evaluateConditionsAsync(rule.conditions, context)) return false;
+    }
+
+    return true;
+  }
+
   private _buildAuditEntry(
     callerId: string,
     targetId: string,
@@ -216,37 +319,7 @@ export class ACL {
 
   private _checkConditions(conditions: Record<string, unknown>, context: Context | null): boolean {
     if (context === null) return false;
-
-    if ('identity_types' in conditions) {
-      const types = conditions['identity_types'];
-      if (!Array.isArray(types)) {
-        console.warn('[apcore:acl] identity_types condition must be an array');
-        return false;
-      }
-      if (context.identity === null || !types.includes(context.identity.type)) return false;
-    }
-
-    if ('roles' in conditions) {
-      const roles = conditions['roles'];
-      if (!Array.isArray(roles)) {
-        console.warn('[apcore:acl] roles condition must be an array');
-        return false;
-      }
-      if (context.identity === null) return false;
-      const identityRoles = new Set(context.identity.roles);
-      if (!roles.some((r: string) => identityRoles.has(r))) return false;
-    }
-
-    if ('max_call_depth' in conditions) {
-      const maxDepth = conditions['max_call_depth'];
-      if (typeof maxDepth !== 'number') {
-        console.warn('[apcore:acl] max_call_depth condition must be a number');
-        return false;
-      }
-      if (context.callChain.length > maxDepth) return false;
-    }
-
-    return true;
+    return ACL._evaluateConditions(conditions, context);
   }
 
   addRule(rule: ACLRule): void {
@@ -256,10 +329,7 @@ export class ACL {
   removeRule(callers: string[], targets: string[]): boolean {
     for (let i = 0; i < this._rules.length; i++) {
       const rule = this._rules[i];
-      if (
-        JSON.stringify(rule.callers) === JSON.stringify(callers) &&
-        JSON.stringify(rule.targets) === JSON.stringify(targets)
-      ) {
+      if (arraysEqual(rule.callers, callers) && arraysEqual(rule.targets, targets)) {
         this._rules.splice(i, 1);
         return true;
       }
@@ -277,3 +347,13 @@ export class ACL {
     // Preserve auditLogger — reload only refreshes rules and default effect
   }
 }
+
+// ---------------------------------------------------------------------------
+// Auto-register built-in handlers at module load time
+// ---------------------------------------------------------------------------
+
+ACL.registerCondition('identity_types', new IdentityTypesHandler());
+ACL.registerCondition('roles', new RolesHandler());
+ACL.registerCondition('max_call_depth', new MaxCallDepthHandler());
+ACL.registerCondition('$or', new OrHandler(ACL._evaluateConditions.bind(ACL)));
+ACL.registerCondition('$not', new NotHandler(ACL._evaluateConditions.bind(ACL)));

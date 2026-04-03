@@ -39,7 +39,7 @@ describe('ApprovalRequest', () => {
       cacheTtl: 0,
       cacheKeyFields: null,
       paginated: false,
-      paginationStyle: 'cursor',
+      paginationStyle: 'cursor', extra: {},
     };
     const req = createApprovalRequest({
       moduleId: 'test.module',
@@ -70,7 +70,7 @@ describe('ApprovalRequest', () => {
       cacheTtl: 0,
       cacheKeyFields: null,
       paginated: false,
-      paginationStyle: 'cursor',
+      paginationStyle: 'cursor', extra: {},
     };
     const req = createApprovalRequest({
       moduleId: 'm',
@@ -95,7 +95,7 @@ describe('ApprovalRequest', () => {
       cacheTtl: 0,
       cacheKeyFields: null,
       paginated: false,
-      paginationStyle: 'cursor',
+      paginationStyle: 'cursor', extra: {},
     };
     const req = createApprovalRequest({
       moduleId: 'm',
@@ -220,7 +220,7 @@ describe('AlwaysDenyHandler', () => {
       moduleId: 'test.mod',
       arguments: {},
       context: ctx,
-      annotations: { readonly: false, destructive: false, idempotent: false, requiresApproval: true, openWorld: true, streaming: false, cacheable: false, cacheTtl: 0, cacheKeyFields: null, paginated: false, paginationStyle: 'cursor' as const },
+      annotations: { readonly: false, destructive: false, idempotent: false, requiresApproval: true, openWorld: true, streaming: false, cacheable: false, cacheTtl: 0, cacheKeyFields: null, paginated: false, paginationStyle: 'cursor' as const, extra: {} },
     });
     const result = await handler.requestApproval(request);
     expect(result.status).toBe('rejected');
@@ -248,7 +248,7 @@ describe('AutoApproveHandler', () => {
       moduleId: 'test.mod',
       arguments: {},
       context: ctx,
-      annotations: { readonly: false, destructive: false, idempotent: false, requiresApproval: true, openWorld: true, streaming: false, cacheable: false, cacheTtl: 0, cacheKeyFields: null, paginated: false, paginationStyle: 'cursor' as const },
+      annotations: { readonly: false, destructive: false, idempotent: false, requiresApproval: true, openWorld: true, streaming: false, cacheable: false, cacheTtl: 0, cacheKeyFields: null, paginated: false, paginationStyle: 'cursor' as const, extra: {} },
     });
     const result = await handler.requestApproval(request);
     expect(result.status).toBe('approved');
@@ -282,7 +282,7 @@ describe('CallbackApprovalHandler', () => {
       moduleId: 'test.mod',
       arguments: { x: 1 },
       context: ctx,
-      annotations: { readonly: false, destructive: false, idempotent: false, requiresApproval: true, openWorld: true, streaming: false, cacheable: false, cacheTtl: 0, cacheKeyFields: null, paginated: false, paginationStyle: 'cursor' as const },
+      annotations: { readonly: false, destructive: false, idempotent: false, requiresApproval: true, openWorld: true, streaming: false, cacheable: false, cacheTtl: 0, cacheKeyFields: null, paginated: false, paginationStyle: 'cursor' as const, extra: {} },
     });
     const result = await handler.requestApproval(request);
     expect(result.status).toBe('approved');

@@ -31,6 +31,7 @@ describe('mergeAnnotations', () => {
       cacheKeyFields: null,
       paginated: false,
       paginationStyle: 'cursor',
+      extra: {},
     };
     const result = mergeAnnotations(null, codeAnnotations);
     expect(result.readonly).toBe(true);
@@ -51,6 +52,7 @@ describe('mergeAnnotations', () => {
       cacheKeyFields: null,
       paginated: false,
       paginationStyle: 'cursor',
+      extra: {},
     };
     const yamlAnnotations = { readonly: false, destructive: true };
     const result = mergeAnnotations(yamlAnnotations, codeAnnotations);
@@ -81,6 +83,7 @@ describe('mergeAnnotations', () => {
       cacheKeyFields: ['id', 'name'],
       paginated: true,
       paginationStyle: 'offset',
+      extra: {},
     };
     const result = mergeAnnotations(null, codeAnnotations);
     expect(result.cacheable).toBe(true);
