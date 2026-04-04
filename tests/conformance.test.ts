@@ -11,10 +11,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { normalizeToCanonicalId } from '../../src/utils/normalize.js';
-import { matchPattern, calculateSpecificity } from '../../src/utils/pattern.js';
-import { ACL, ACLRule } from '../../src/acl.js';
-import { Context, createIdentity } from '../../src/context.js';
+import { normalizeToCanonicalId } from '../src/utils/normalize.js';
+import { matchPattern, calculateSpecificity } from '../src/utils/pattern.js';
+import { ACL, ACLRule } from '../src/acl.js';
+import { Context, createIdentity } from '../src/context.js';
 import {
   Config,
   _globalNsRegistry,
@@ -23,17 +23,17 @@ import {
   _envPrefixUsed,
   applyEnvOverrides,
   applyNamespaceEnvOverrides,
-} from '../../src/config.js';
-import { negotiateVersion } from '../../src/version.js';
-import { ErrorCodeRegistry } from '../../src/error-code-registry.js';
-import { guardCallChain } from '../../src/utils/call-chain.js';
+} from '../src/config.js';
+import { negotiateVersion } from '../src/version.js';
+import { ErrorCodeRegistry } from '../src/error-code-registry.js';
+import { guardCallChain } from '../src/utils/call-chain.js';
 import {
   CallDepthExceededError,
   CircularCallError,
   CallFrequencyExceededError,
-} from '../../src/errors.js';
-import { jsonSchemaToTypeBox } from '../../src/schema/loader.js';
-import { SchemaValidator } from '../../src/schema/validator.js';
+} from '../src/errors.js';
+import { jsonSchemaToTypeBox } from '../src/schema/loader.js';
+import { SchemaValidator } from '../src/schema/validator.js';
 
 // ---------------------------------------------------------------------------
 // Fixture discovery
@@ -51,7 +51,7 @@ function findFixturesRoot(): string {
   }
 
   // 2. Sibling ../apcore/ directory
-  const repoRoot = path.resolve(__dirname, '..', '..'); // apcore-typescript/
+  const repoRoot = path.resolve(__dirname, '..'); // apcore-typescript/
   const sibling = path.resolve(repoRoot, '..', 'apcore', 'conformance', 'fixtures');
   if (fs.existsSync(sibling)) return sibling;
 
