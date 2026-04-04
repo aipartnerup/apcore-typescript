@@ -111,7 +111,7 @@ describe('apcore Conformance Suite (TypeScript)', () => {
     });
   });
 
-  // --- 4. ACL Evaluation (��6) ---
+  // --- 4. ACL Evaluation ---
   const aclFixture = loadFixture('acl_evaluation');
   describe('ACL Evaluation', () => {
     aclFixture.test_cases.forEach((tc: any) => {
@@ -195,23 +195,23 @@ describe('apcore Conformance Suite (TypeScript)', () => {
         const registry = new ErrorCodeRegistry();
         if (tc.action === 'register') {
           if (tc.expected_error) {
-            expect(() => registry.register(tc.module_id, [tc.error_code])).toThrow();
+            expect(() => registry.register(tc.module_id, new Set([tc.error_code]))).toThrow();
           } else {
-            registry.register(tc.module_id, [tc.error_code]);
+            registry.register(tc.module_id, new Set([tc.error_code]));
           }
         } else if (tc.action === 'register_sequence') {
           tc.steps.forEach((step: any, idx: number) => {
             const isLast = idx === tc.steps.length - 1;
             if (isLast && tc.expected_error) {
-              expect(() => registry.register(step.module_id, [step.error_code])).toThrow();
+              expect(() => registry.register(step.module_id, new Set([step.error_code]))).toThrow();
             } else {
-              registry.register(step.module_id, [step.error_code]);
+              registry.register(step.module_id, new Set([step.error_code]));
             }
           });
         } else if (tc.action === 'register_unregister_register') {
           tc.steps.forEach((step: any) => {
             if (step.action === 'register') {
-              registry.register(step.module_id, [step.error_code]);
+              registry.register(step.module_id, new Set([step.error_code]));
             } else if (step.action === 'unregister') {
               registry.unregister(step.module_id);
             }
@@ -282,7 +282,7 @@ describe('apcore Conformance Suite (TypeScript)', () => {
     });
   });
 
-  // --- 9. Context Serialization (§5.7) ---
+  // --- 9. Context Serialization ---
   const ctxSerFixture = loadFixture('context_serialization');
   describe('Context Serialization', () => {
     const standardCases = ctxSerFixture.test_cases.filter((tc: any) => !tc.sub_cases);
@@ -388,7 +388,7 @@ describe('apcore Conformance Suite (TypeScript)', () => {
     schemaValFixture.test_cases.forEach((tc: any) => {
       it(tc.id, () => {
         if (XFAIL_IDS.has(tc.id)) {
-          // Known gap — skip
+          // Known gap - skip
           return;
         }
 
