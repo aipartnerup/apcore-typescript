@@ -146,7 +146,7 @@ describe('Config.validate', () => {
 describe('Config.fromDefaults', () => {
   it('creates config with default values', () => {
     const cfg = Config.fromDefaults();
-    expect(cfg.get('version')).toBe('0.8.0');
+    expect(cfg.get('version')).toBe('0.16.0');
     expect(cfg.get('executor.default_timeout')).toBe(30000);
     expect(cfg.get('acl.default_effect')).toBe('deny');
     expect(cfg.get('project.name')).toBe('apcore');

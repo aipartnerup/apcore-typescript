@@ -26,8 +26,8 @@ export type EvalFn = (
 export class IdentityTypesHandler implements ACLConditionHandler {
   evaluate(value: unknown, context: Context): boolean {
     if (context.identity === null) return false;
-    const allowed = Array.isArray(value) ? value : [value];
-    return allowed.includes(context.identity.type);
+    if (!Array.isArray(value)) return false;
+    return value.includes(context.identity.type);
   }
 }
 
@@ -35,9 +35,9 @@ export class IdentityTypesHandler implements ACLConditionHandler {
 export class RolesHandler implements ACLConditionHandler {
   evaluate(value: unknown, context: Context): boolean {
     if (context.identity === null) return false;
-    const required = Array.isArray(value) ? value : [value];
+    if (!Array.isArray(value)) return false;
     const identityRoles = new Set(context.identity.roles);
-    return (required as string[]).some((r: string) => identityRoles.has(r));
+    return (value as string[]).some((r: string) => identityRoles.has(r));
   }
 }
 

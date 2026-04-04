@@ -219,10 +219,10 @@ describe('Context.toJSON() / Context.fromJSON()', () => {
     const ctx = new Context('t1', null, ['a', 'b'], null, identity, { field: 'val' }, { shared: true });
     const serialized = ctx.toJSON();
 
-    // Mutate serialized copies
-    (serialized.callChain as string[]).push('mutated');
+    // Mutate serialized copies (serialize() outputs snake_case keys)
+    (serialized.call_chain as string[]).push('mutated');
     (serialized.identity as Record<string, unknown>).id = 'mutated';
-    (serialized.redactedInputs as Record<string, unknown>).extra = true;
+    (serialized.redacted_inputs as Record<string, unknown>).extra = true;
     (serialized.data as Record<string, unknown>).extra = true;
 
     // Originals unchanged
