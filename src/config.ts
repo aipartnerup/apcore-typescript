@@ -345,7 +345,10 @@ export function applyNamespaceEnvOverrides(data: Record<string, unknown>): Recor
     // 3. Prefix-based dispatch.
     for (const reg of registrations) {
       if (envKey.startsWith(reg.envPrefix)) {
-        const suffix = envKey.slice(reg.envPrefix.length);
+        let suffix = envKey.slice(reg.envPrefix.length);
+        if (!suffix) continue;
+        // Strip leading _ separator between prefix and suffix
+        if (suffix.startsWith('_')) suffix = suffix.slice(1);
         if (!suffix) continue;
 
         const { key, isNested } = resolveEnvSuffix(suffix, reg);
