@@ -200,13 +200,12 @@ describe('Context.toJSON() / Context.fromJSON()', () => {
     expect(serialized.data).toEqual({ key: 'included' });
   });
 
-  it('re-injects executor via fromJSON', () => {
+  it('executor is null after fromJSON (non-serializable)', () => {
     const ctx = new Context('trace-2', null, [], 'original-exec');
     const serialized = ctx.toJSON();
-    const newExecutor = { name: 'new-executor' };
-    const restored = Context.fromJSON(serialized, newExecutor);
+    const restored = Context.fromJSON(serialized);
 
-    expect(restored.executor).toBe(newExecutor);
+    expect(restored.executor).toBeNull();
   });
 
   it('defaults executor to null when not provided to fromJSON', () => {
