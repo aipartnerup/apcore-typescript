@@ -75,7 +75,7 @@ const CONSTRAINTS: Record<string, [(v: unknown) => boolean, string]> = {
 
 /** Default configuration values for legacy mode. */
 const DEFAULTS: Record<string, unknown> = {
-  version: '0.8.0',
+  version: '0.16.0',
   extensions: {
     root: './extensions',
     auto_discover: true,
